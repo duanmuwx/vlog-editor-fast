@@ -483,136 +483,63 @@ V1 必须保留以下三个交互节点，并按如下顺序触发：
 - 旁白生成建议
 - 段落级替代呈现结果
 
-### 4.4.3 回退策略
+### 4.4.3 统一回退枚举
 
-#### 场景 A：无 GPS / EXIF / 拍摄时间缺失
+后续所有模块必须复用同一组回退原因与动作，不得各自发明同义字段。
 
-触发条件：
+`FallbackReason` 至少包括：
 
-- 素材缺少 `GPS`、`EXIF`、拍摄时间中的任一项或多项
-- 缺失可发生在部分素材，也可发生在整个项目
+- `metadata_missing`
+- `short_note`
+- `low_structure_note`
+- `insufficient_assets`
+- `low_confidence_match`
+- `resource_limited`
 
-系统降级：
+`FallbackAction` 至少包括：
 
-- 不因单项元数据缺失直接判定项目失败
-- 降低时间和地点特征权重，改用游记文本语义、视觉标签、音频语义线索、素材相邻上下文做对齐
-- 若仅部分素材拥有时间或地点元数据，系统应优先用有元数据素材建立主时间线，缺失元数据素材作为补充候选
+- `semantic_align`
+- `simplified_timeline`
+- `alternative_render_unit`
+- `manual_confirm`
+- `segment_skip`
+- `switch_to_lightweight_mode`
 
-用户提示：
+### 4.4.4 回退触发表
 
-- 必须明确提示“当前对齐主要基于内容语义，时间地点准确性可能下降”
-- 必须在相关段落或镜头说明中标记元数据缺失，而不是仅在全局提示
+以下规则用于把“触发条件 → 系统动作 → 状态变化 → 诊断输出”固定下来。
 
-流程门槛：
+| `trigger_code` | 所属阶段 | 判定规则 | `fallback_reason` | `fallback_action` | 节点状态 | 项目状态 | `user_message_key` | 诊断文件 |
+|---|---|---|---|---|---|---|---|---|
+| `note_too_short` | `input_validation` / `story_parsing` | 游记有效字数 `<150` | `short_note` | `simplified_timeline` | `degraded` | `ready` 或 `running` | `input.note_too_short` | `input_validation_report.json` |
+| `note_low_structure` | `story_parsing` | 有效事件、地点或转折线索 `<3`，或无法形成稳定故事段落 | `low_structure_note` | `simplified_timeline` | `degraded` | `running` | `story.note_low_structure` | `run_summary.json`、`segment_diagnostics.json` |
+| `metadata_sparse_partial` | `alignment` | 仅部分素材缺失 `GPS`、`EXIF` 或拍摄时间 | `metadata_missing` | `semantic_align` | `degraded` | `running` | `alignment.metadata_sparse_partial` | `segment_diagnostics.json`、`fallback_events.jsonl` |
+| `metadata_sparse_global` | `alignment` | 全项目大部分素材缺失时间和地点元数据 | `metadata_missing` | `semantic_align` | `degraded` | `running` 或 `awaiting_user` | `alignment.metadata_sparse_global` | `segment_diagnostics.json`、`fallback_events.jsonl` |
+| `asset_coverage_low` | `alignment` / `edit_planning` | 某段落缺少足够视频镜头，但仍可由照片、地点卡、文字卡或旁白过渡补足 | `insufficient_assets` | `alternative_render_unit` | `degraded` | `running` | `alignment.asset_coverage_low` | `segment_diagnostics.json` |
+| `high_priority_asset_missing` | `highlight_confirmation` | 高重要度段落缺少足够镜头，且替代呈现单元仍不足以满足最低表达要求 | `insufficient_assets` | `manual_confirm` | `failed_manual` 或 `blocked` | `awaiting_user` | `highlight.high_priority_asset_missing` | `segment_diagnostics.json`、`run_summary.json` |
+| `segment_match_low_confidence` | `alignment` / `highlight_confirmation` | 单段推荐结果 `match_confidence=low` | `low_confidence_match` | 低重要度段落为 `segment_skip`，高重要度段落为 `manual_confirm` | `degraded` 或 `failed_manual` | `running` 或 `awaiting_user` | `alignment.segment_match_low_confidence` | `segment_diagnostics.json`、`fallback_events.jsonl` |
+| `project_match_low_confidence_ratio` | `highlight_confirmation` | 低置信段落占比 `>30%` | `low_confidence_match` | `manual_confirm` | `failed_manual` | `awaiting_user` | `highlight.project_match_low_confidence_ratio` | `run_summary.json`、`segment_diagnostics.json` |
+| `resource_budget_limited` | `media_analysis` / `alignment` / `render_export` | 设备资源低于 `4.7` 定义的推荐档或当前运行预算不足 | `resource_limited` | `switch_to_lightweight_mode` | `degraded` | `running` | `runtime.resource_budget_limited` | `run_summary.json`、`fallback_events.jsonl` |
 
-- 元数据缺失本身不得阻断项目继续运行
-- 若高重要度段落在回退后仍为 `low`，必须在后续高光确认节点进入人工确认
+补充约束如下：
 
-输出标记：
+- `metadata_sparse_global` 本身不得直接导致项目失败，但若高重要度段落回退后仍为 `low`，必须进入 `manual_confirm`
+- `asset_coverage_low` 仅允许段落级降级，不得把单段素材不足直接上升为项目级失败
+- `segment_match_low_confidence` 中，只有低重要度段落可被用户主动跳过；高重要度段落不得静默跳过
+- `resource_budget_limited` 触发后，系统必须提示质量与耗时变化，并在诊断中记录切换前后的运行模式
 
-- 诊断结果中必须记录 `fallback_reason=metadata_missing`
-- 采用语义优先对齐的段落必须记录 `fallback_action=semantic_align`
+### 4.4.5 多异常并发时的处理顺序
 
-#### 场景 B：游记过短或过于流水账
+多异常并发时，系统必须按以下顺序处理：
 
-触发条件：
+1. 先处理硬性输入错误，未通过 `input_validation` 时不得进入后续阶段
+2. 再处理资源模式切换，先确定是否进入轻量模式，再执行分析与对齐
+3. 再处理元数据缺失，完成特征回退，不因缺少时间地点信息直接放弃对齐
+4. 再处理素材不足，优先补足可替代呈现单元，而不是直接删除故事段落
+5. 若回退后仍存在低置信匹配，则进入人工确认节点
+6. 只有在无法形成最小可用故事骨架时，才允许项目级失败；其余情况应优先段落级降级
 
-- 游记长度不足以支撑稳定分段
-- 游记缺少清晰时间线、地点线或事件转折，导致故事骨架整体置信度偏低
-
-系统降级：
-
-- 自动切换为“时间顺序 + 高光增强”的简化叙事模式
-- 降低复杂情绪线、角色关系和多主题并行结构的判断权重
-
-用户提示：
-
-- 必须提示用户“当前已切换为简化叙事模式，补充旅行摘要可提升效果”
-
-流程门槛：
-
-- 用户可直接接受简化骨架继续，也可返回补写游记后重算
-
-输出标记：
-
-- 相关故事骨架结果记录 `fallback_action=simplified_timeline`
-
-#### 场景 C：素材不足以覆盖全部故事段落
-
-触发条件：
-
-- 某故事段落没有足够可用视频镜头
-- 某高重要度段落无法满足最小可用呈现单元要求
-
-系统降级：
-
-- 优先使用照片与短视频混编补足段落表达
-- 仍不足时，改用地点卡、文字卡、旁白过渡等可替代呈现单元
-- 对低重要度且素材极弱的相邻段落，允许合并、缩短或由用户确认后跳过
-- 对高重要度段落，必须先尝试替代呈现单元，不得直接删除
-
-用户提示：
-
-- 必须明确标注“该段缺少足够素材支撑，已降级呈现”
-- 必须允许用户选择补充素材、接受降级方案或对低优先级段落执行跳过
-
-流程门槛：
-
-- 段落级素材不足不得直接升级为项目级失败
-- 高重要度段落若仅能以降级方案呈现，必须在高光确认节点显式展示并由用户确认
-
-输出标记：
-
-- 相关段落必须记录 `fallback_reason=insufficient_assets`
-- 使用地点卡、文字卡、旁白过渡等方案时，必须记录 `fallback_action=alternative_render_unit`
-
-#### 场景 D：对齐结果低置信
-
-触发条件：
-
-- 单个段落的推荐镜头为 `low`
-- 低置信匹配占比超过产品设定阈值
-- 高重要度段落仅命中低置信候选
-
-系统降级：
-
-- 扩大候选镜头集合，并展示匹配原因、匹配置信度和替代候选
-- 对低重要度段落允许用户显式标记为“跳过”
-- 对高重要度段落不得直接自动出片，必须转入人工确认
-
-用户提示：
-
-- 必须明确提示“当前推荐为低置信匹配，建议人工确认”
-- 必须让用户看到低置信的原因，而不是只显示一个不可解释的分数
-
-流程门槛：
-
-- 低重要度段落可在用户确认后跳过，不阻断整个项目
-- 任一高重要度段落处于低置信且未确认时，不得进入第一版成片生成
-
-输出标记：
-
-- 低置信结果必须记录 `fallback_reason=low_confidence_match`
-- 进入人工确认的段落必须记录 `fallback_action=manual_confirm`
-- 被用户主动跳过的段落必须记录 `fallback_action=segment_skip`
-
-#### 场景 E：本地设备算力不足
-
-处理方式：
-
-- 切换轻量模型
-- 降低视觉分析精度
-- 关闭部分可选增强能力
-- 提示预计耗时变化
-
-### 4.4.4 多异常并发时的处理顺序
-
-- 先处理元数据缺失，完成特征回退，不因缺少时间地点信息直接放弃对齐
-- 再处理素材不足，优先补足可替代呈现单元，而不是直接删除故事段落
-- 若回退后仍存在低置信匹配，则进入人工确认节点
-- 只有在无法形成最小可用故事骨架时，才允许项目级失败；其余情况应优先段落级降级
-
-### 4.4.5 设计原则
+### 4.4.6 设计原则
 
 - 不隐瞒不确定性
 - 不在低置信时强行全自动
@@ -623,37 +550,102 @@ V1 必须保留以下三个交互节点，并按如下顺序触发：
 
 ## 4.5 输入规范与校验草案
 
-### 4.5.1 游记输入要求
+### 4.5.1 输入包定义
 
-- 支持中文自由文本
-- 建议长度不少于 150 字
-- 建议至少包含 3 个以上事件或地点线索
-- 允许口语化、备忘式表达，不要求正式成文
+V1 项目输入必须抽象为统一的 `ProjectInputContract`，最少包含以下对象：
 
-### 4.5.2 素材输入要求
+- `travel_note`：游记正文，作为故事解析主输入
+- `media_files[]`：照片、视频素材集合
+- `bgm_asset`：项目级背景音乐
+- `tts_voice`：项目级配音音色
+- `metadata_pack`：可选增强信息，包含 `GPS`、`EXIF`、拍摄时间等
 
-- 支持照片和视频混合导入
-- 支持常见图片和视频格式
-- 建议单项目素材总量不超过系统推荐上限
-- 允许部分素材缺失时间和地点元数据
+系统不得将“游记为空但靠素材硬剪”视作 V1 正常输入；没有 `travel_note` 的项目不属于默认验收口径。
 
-### 4.5.3 项目创建校验
+### 4.5.2 必填项与支持格式
 
-创建项目时系统应检查：
+V1 输入要求如下：
 
-- 是否存在游记文件
-- 是否至少导入最小数量的照片或视频
-- 是否存在可读媒体文件
-- 是否选择 BGM
-- 是否选择 TTS 音色
+| 输入项 | 是否必填 | V1 支持格式 | 说明 |
+|---|---|---|---|
+| `travel_note` | 是 | `txt`、`md`、直接粘贴文本 | 仅支持中文自由文本 |
+| `media_files[]` | 是 | 图片：`jpg`、`jpeg`、`png`、`heic`；视频：`mp4`、`mov`、`m4v` | 支持照片和视频混合导入 |
+| `bgm_asset` | 是 | 本地可读音频文件 | V1 不支持“稍后再选 BGM” |
+| `tts_voice` | 是 | 已配置的系统或项目内音色标识 | V1 不支持“无旁白”模式 |
+| `metadata_pack` | 否 | `GPS`、`EXIF`、拍摄时间 | 作为增强信息，不作为项目创建前置条件 |
 
-### 4.5.4 风险提示
+补充要求如下：
 
-若输入不满足建议条件，系统不应直接拒绝，而应给出如下分级提示：
+- 游记建议不少于 `150` 字
+- 游记建议至少包含 `3` 个事件、地点或转折线索
+- 标准旅行项目的素材总量建议维持在 `150-300` 个文件之间
+- 标准旅行项目的原始视频总时长建议不超过 `60` 分钟
 
-- 可继续，但成片质量可能下降
-- 建议补充信息后再生成
-- 当前输入不足以生成完整成片
+### 4.5.3 硬性阻断校验
+
+以下情况必须在 `input_validation` 阶段阻断，不得进入 `ready`：
+
+| `check_code` | 阻断条件 | `failure_type` | 节点状态 | 用户提示键 | 推荐修复动作 |
+|---|---|---|---|---|---|
+| `note_missing` | 未提供游记，或游记去除空白后为空 | `input_error` | `failed_manual` | `input.note_missing` | 补充游记后重新校验 |
+| `media_missing` | 未导入任何照片或视频 | `input_error` | `failed_manual` | `input.media_missing` | 至少导入一项可读媒体 |
+| `media_unreadable_all` | 所有媒体文件均不可读、损坏或解码失败 | `input_error` | `failed_manual` | `input.media_unreadable_all` | 替换损坏文件后重试 |
+| `media_unsupported_all` | 所有媒体文件格式均不在 V1 支持范围内 | `input_error` | `failed_manual` | `input.media_unsupported_all` | 转码或替换为支持格式 |
+| `bgm_missing` | 未选择 `bgm_asset` | `input_error` | `failed_manual` | `input.bgm_missing` | 选择 BGM 后继续 |
+| `tts_voice_missing` | 未选择 `tts_voice` | `input_error` | `failed_manual` | `input.tts_voice_missing` | 选择音色后继续 |
+
+上述场景必须满足以下规则：
+
+- `input_validation` 失败时，项目状态保持 `draft`
+- 阻断原因必须同时写入 `input_validation_report.json` 与 `run_summary.json`
+- 若只存在“部分文件不可读或不支持”，但仍有最小可用输入，则不得按阻断处理
+
+### 4.5.4 软性风险与自动降级
+
+以下情况允许继续，但必须显式提示、留痕，并映射到后续回退策略：
+
+| `check_code` | 触发条件 | 严重级别 | 默认处理 | 对应 `fallback_reason` | 对应 `fallback_action` | 用户提示键 |
+|---|---|---|---|---|---|---|
+| `note_too_short` | 游记有效字数 `<150` | `warning` | 允许继续，后续切换简化叙事 | `short_note` | `simplified_timeline` | `input.note_too_short` |
+| `note_low_structure` | 游记缺少足够事件、地点或转折线索 | `warning` | 允许继续，降低复杂结构判断 | `low_structure_note` | `simplified_timeline` | `input.note_low_structure` |
+| `media_unreadable_partial` | 存在部分损坏或不可读文件 | `warning` | 跳过异常文件并继续 | 无 | 无 | `input.media_unreadable_partial` |
+| `media_unsupported_partial` | 存在部分不支持格式文件 | `warning` | 跳过异常文件并继续 | 无 | 无 | `input.media_unsupported_partial` |
+| `metadata_sparse` | 时间、地点元数据覆盖不足 | `warning` | 允许继续并切换语义优先对齐 | `metadata_missing` | `semantic_align` | `input.metadata_sparse` |
+| `asset_count_low` | 可用素材数量明显低于标准旅行项目建议值 | `warning` | 允许继续，但提示可能需要替代表现单元 | `insufficient_assets` | `alternative_render_unit` | `input.asset_count_low` |
+| `video_missing` | 仅有照片，无可用视频 | `warning` | 允许继续，以照片、文字卡和旁白为主 | `insufficient_assets` | `alternative_render_unit` | `input.video_missing` |
+| `photo_missing` | 仅有视频，无照片 | `info` | 允许继续，不触发项目级失败 | 无 | 无 | `input.photo_missing` |
+| `media_over_budget` | 素材数量或总时长明显超出标准旅行项目建议值 | `warning` | 允许继续，但需提示耗时上升或建议先筛选素材 | `resource_limited` | `switch_to_lightweight_mode` | `input.media_over_budget` |
+
+软性风险必须满足以下规则：
+
+- 同一项目可同时命中多个 `check_code`，系统必须全部记录，不得只保留首个告警
+- 软性风险默认不把项目状态打回 `draft`，但必须在后续节点中体现 `degraded`
+- 所有“允许继续”的风险都必须提供 `recommended_fix`，如“补写游记摘要”“补充高光段落素材”“先筛选无效素材”
+
+### 4.5.5 校验结果表达
+
+输入校验结果必须统一抽象为 `InputValidationReport`，并输出到 `input_validation_report.json`。
+
+`InputCheckSeverity` 取值固定为：
+
+- `info`
+- `warning`
+- `blocking`
+
+每条校验记录至少包含以下字段：
+
+- `check_code`
+- `severity`
+- `blocking`
+- `user_message_key`
+- `failure_type`
+- `fallback_reason`
+- `fallback_action`
+- `affected_assets[]`
+- `recommended_fix`
+- `detected_at_stage`
+
+系统不得仅输出自然语言错误文案而缺少结构化字段；用户提示文案与日志诊断必须共享同一条校验记录。
 
 ---
 
@@ -841,18 +833,90 @@ V1 项目运行必须按以下阶段推进：
 
 ### 4.6.8 诊断输出与验收约束
 
-失败、降级或恢复场景下，系统至少必须输出以下统一字段：
+失败、降级或恢复场景下，系统必须输出统一的 `DiagnosticBundle`，用于同时支撑用户提示、研发排障和恢复执行。
 
+#### 4.6.8.1 统一诊断字段
+
+所有运行记录至少必须包含以下全局字段：
+
+- `run_id`
+- `project_id`
+- `started_at`
+- `ended_at`
+- `project_status`
 - `failed_stage`
 - `failed_node`
 - `failure_type`
+- `failure_code`
 - `retryable`
 - `fallback_reason`
 - `fallback_action`
 - `resume_from`
 - `last_good_version`
+- `user_message_key`
 - 原始错误日志路径
 - 失败原因摘要
+
+其中：
+
+- `failure_code` 用于结构化定位问题，如 `note_missing`、`project_match_low_confidence_ratio`
+- `user_message_key` 用于映射用户可见文案，不得直接用自由文本替代
+- `fallback_reason`、`fallback_action` 必须与 `4.4` 中定义的枚举保持一致
+
+#### 4.6.8.2 诊断文件清单
+
+`DiagnosticBundle` 至少包含以下文件：
+
+| 文件名 | 用途 | 最低必填内容 |
+|---|---|---|
+| `run_summary.json` | 项目级运行摘要 | 全局状态、失败节点、恢复入口、用户提示键 |
+| `input_validation_report.json` | 输入校验结果 | 全部 `check_code`、严重级别、受影响文件、建议修复动作 |
+| `segment_diagnostics.json` | 段落级诊断 | 每段重要度、匹配置信度、素材覆盖状态、替代表现情况、用户确认结果 |
+| `fallback_events.jsonl` | 回退事件流 | 每次触发回退的时间、阶段、原因、动作、影响范围 |
+| `node_status_timeline.jsonl` | 节点状态时间线 | 节点开始、完成、降级、失败、恢复记录 |
+| `export_report.json` | 导出诊断 | 导出输入版本、失败原因、重导出入口、产物路径 |
+| `logs/runtime.log` | 原始运行日志 | 模块日志、错误栈、外部依赖报错 |
+
+#### 4.6.8.3 段落级诊断字段
+
+`segment_diagnostics.json` 中每个故事段落至少必须记录：
+
+- `segment_id`
+- `importance`
+- `story_summary`
+- `coverage_status`
+- `match_confidence`
+- `selected_asset_ids[]`
+- `candidate_count`
+- `alternative_render_unit`
+- `requires_manual_confirmation`
+- `user_decision`
+
+补充规则如下：
+
+- 高重要度段落若触发降级、跳过或人工确认，必须单独成条记录，不得只体现在全局摘要
+- `alternative_render_unit` 至少区分照片补位、地点卡、文字卡、旁白过渡
+- `user_decision` 必须记录“接受降级”“替换素材”“跳过段落”“返回补写游记”等显式动作
+
+#### 4.6.8.4 失败原因映射规则
+
+系统必须把输入校验码、回退触发码和失败码映射到统一出口：
+
+| 来源字段 | 示例 | 用户提示 | 节点状态 | 日志字段 | 诊断落点 |
+|---|---|---|---|---|---|
+| `check_code` | `note_missing` | 使用 `user_message_key=input.note_missing` | `failed_manual` | `failure_code=note_missing` | `input_validation_report.json`、`run_summary.json` |
+| `check_code` | `metadata_sparse` | 使用 `user_message_key=input.metadata_sparse` | `degraded` | `fallback_reason=metadata_missing` | `input_validation_report.json`、`fallback_events.jsonl` |
+| `trigger_code` | `segment_match_low_confidence` | 使用 `user_message_key=alignment.segment_match_low_confidence` | 高重要度为 `failed_manual`，低重要度为 `degraded` | `fallback_action=manual_confirm` 或 `segment_skip` | `segment_diagnostics.json`、`fallback_events.jsonl` |
+| `trigger_code` | `project_match_low_confidence_ratio` | 使用 `user_message_key=highlight.project_match_low_confidence_ratio` | `failed_manual` | `failure_code=project_match_low_confidence_ratio` | `run_summary.json`、`segment_diagnostics.json` |
+| `failure_type` | `export_error` | 使用 `user_message_key=export.failed_retryable` 或同类键 | `failed_retryable` | `failure_type=export_error` | `export_report.json`、`logs/runtime.log` |
+
+映射规则必须满足以下约束：
+
+- 用户界面不得直接读取原始错误栈作为提示文案
+- 日志必须保留结构化 `failure_code`，不得只保留自然语言摘要
+- 同一异常在用户提示、节点状态和诊断文件中必须可互相追溯，不得出现编码不一致
+
+#### 4.6.8.5 运行期可观测性与验收口径
 
 运行期可观测性必须满足以下要求：
 
@@ -861,7 +925,7 @@ V1 项目运行必须按以下阶段推进：
 - 项目处于 `awaiting_user` 时，必须明确展示阻塞原因，不得仅显示“处理中”
 - 高重要度段落若发生降级、跳过或替代表现，必须在项目诊断中单独记录
 
-本节的默认验收口径如下：
+本节默认验收口径如下：
 
 - 恢复动作默认优先从最近有效边界继续，不以整项目重跑作为默认行为
 - 任一模块失败都必须可定位到具体阶段和节点

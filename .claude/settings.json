@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PLANS_DIR=\"$HOME/.claude/plans\"; DEST_DIR=\"$(pwd)/plans\"; latest=$(ls -t \"$PLANS_DIR\"/*.md 2>/dev/null | head -1); if [ -n \"$latest\" ]; then mkdir -p \"$DEST_DIR\"; ts=$(date +%Y%m%d_%H%M%S); fname=$(basename \"$latest\"); cp \"$latest\" \"$DEST_DIR/${ts}_${fname}\"; fi",
+            "statusMessage": "Saving plan to plans/..."
+          }
+        ]
+      }
+    ]
+  }
+}

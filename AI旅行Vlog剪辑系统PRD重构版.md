@@ -1016,12 +1016,394 @@ V1 采用本地桌面应用 + 本地处理服务架构。
 
 ---
 
-## 5. 建议的下一步文档动作
+## 4.9 模块需求草案
 
-建议按“运行机制约束 → 输入与诊断表达 → 功能与实现落地”的顺序继续补写正式 PRD，以确保后续模块设计建立在清晰的状态、回退和校验规则之上：
+### 4.9.1 设计目标
 
-1. 优先细化“任务状态机与失败恢复”，作为主链路编排基础，明确长任务阶段、状态迁移、失败分类、断点续跑、缓存边界和模块级重试策略
-2. 在此基础上细化“输入规范、回退触发条件与诊断输出”，明确输入校验规则、降级触发条件，并将失败原因映射到用户提示、节点状态、日志字段和诊断文件
-3. 最后再细化“模块需求”和“技术方案”，将前两项形成的状态机、校验规则、回退策略和诊断约束落实到各模块职责、接口边界、交互节点和实现方案中，避免先写实现再反补目标与约束
+本节用于把 `4.3`、`4.4`、`4.5`、`4.6` 中已确定的交互、回退、校验、状态和诊断规则落实到模块职责与接口边界中，形成可直接指导实现的正式 PRD 条款。
+
+V1 模块设计必须满足以下要求：
+
+- 每个主链路阶段都必须对应唯一主责模块，不得出现多模块共同拥有同一阶段状态的情况
+- 每个模块都必须明确输入产物、输出产物、可接受状态和失败恢复动作
+- 每个必选人工节点都必须以独立模块责任表达，不得混入自动分析模块内部
+- 每个会降级、跳过、失败或等待人工确认的模块都必须写入统一诊断字段
+- 模块设计必须优先支持版本复用、断点续跑和局部再生成，不得默认全链路重跑
+
+### 4.9.2 模块分层
+
+V1 模块按以下四层组织：
+
+| 层级 | 包含模块 | 主要职责 |
+|---|---|---|
+| 交互与项目层 | `Project Workspace`、`Story Skeleton Confirmation`、`Highlight Confirmation` | 项目创建、素材导入、确认节点承载、版本切换、结果预览 |
+| 编排与状态层 | `Input Validator`、`Run Orchestrator`、`Artifact & Version Store` | 输入校验、阶段调度、双层状态机推进、缓存与版本失效管理 |
+| 核心生成层 | `Story Parser`、`Media Analyzer`、`Alignment Engine`、`Edit Planner`、`Narration / TTS / Subtitle Engine`、`Audio Composer`、`Renderer & Exporter` | 将输入逐步转成候选故事骨架、镜头对齐、时间线、音频和导出产物 |
+| 产物与诊断层 | `Diagnostic Reporter` | 汇总运行记录、回退事件、段落级诊断和导出报告 |
+
+分层约束如下：
+
+- 交互与项目层不得直接承担重型媒体分析和渲染计算
+- 编排与状态层不得直接生成最终成片内容，但必须拥有阶段推进与重试决策权
+- 核心生成层不得绕过统一状态机直接写入“完成”状态
+- 产物与诊断层不得决定业务流程，但必须对失败、降级和恢复结果形成统一出口
+
+### 4.9.3 V1 模块清单与职责
+
+| 模块 | 核心职责 | 主责阶段 | 必须产物 | 附加约束 |
+|---|---|---|---|---|
+| `Project Workspace` | 创建项目、接收 `ProjectInputContract`、建立项目配置、展示版本与结果入口 | `asset_indexing` | 项目配置、素材导入记录、`asset_index` | 只负责导入和展示，不直接执行复杂分析 |
+| `Input Validator` | 执行硬性阻断校验与软性风险识别，生成 `InputValidationReport` | `input_validation` | `input_validation_report.json` | 必须把 `check_code` 映射到统一提示键与回退枚举 |
+| `Artifact & Version Store` | 持久化 `ArtifactVersion`、校验依赖版本、判断产物是否可复用 | 无独占阶段 | 全部版本元数据、失效记录 | 不得复用依赖版本已变化的下游产物 |
+| `Run Orchestrator` | 驱动 `ProjectRunStatus` 与 `TaskNodeStatus`、调度并发节点、发起恢复执行 | 无独占阶段 | 节点状态流、恢复入口、运行上下文 | 必须是所有长任务状态变更的唯一写入方 |
+| `Story Parser` | 将游记解析为候选故事骨架、识别低结构风险、输出旁白初稿素材 | `story_parsing` | 候选故事段落、解析摘要 | 低置信时必须显式回退为简化叙事 |
+| `Story Skeleton Confirmation` | 承载故事骨架确认、冻结 `story_version`、记录用户编辑动作 | `story_skeleton_confirmation` | `story_version`、用户决策记录 | 用户未确认前不得继续到对齐阶段 |
+| `Media Analyzer` | 生成镜头级素材画像、质量评分、原声兴趣信号 | `media_analysis` | `media_analysis_pack` | 必须支持轻量模式和部分素材跳过 |
+| `Alignment Engine` | 建立故事段落与候选镜头的匹配关系 | `alignment` | `alignment_version`、段落候选镜头集合 | 不得只依赖单一语义相似度做最终匹配 |
+| `Highlight Confirmation` | 展示高重要度段落候选镜头、冻结高光选择与禁用规则 | `highlight_confirmation` | `highlight_selection_version`、用户决策记录 | 高重要度段落低置信时必须要求人工确认 |
+| `Edit Planner` | 生成可执行的叙事结构、时长控制和镜头编排结果 | `edit_planning` | `timeline_version` | 压缩短版时只能复用已确认骨架与高光版本 |
+| `Narration / TTS / Subtitle Engine` | 生成旁白文案、TTS 音频、旁白字幕与字卡计划 | `narration_tts_subtitles` | `narration_pack` | 仅重写旁白时只能使本模块及下游失效 |
+| `Audio Composer` | 混合旁白、现场原声与 `BGM`，生成混音计划 | `audio_mix` | `audio_mix_pack` | 必须保留原声抉择的诊断留痕 |
+| `Renderer & Exporter` | 执行片段拼接、字幕烧录、封装导出与重导出 | `render_export` | `export_bundle` | 导出失败时必须优先支持 `re_export_only` |
+| `Diagnostic Reporter` | 汇总 `DiagnosticBundle`、落盘段落级诊断和运行摘要 | 无独占阶段 | `diagnostic_bundle` | 缺少诊断包不得阻断成片恢复，但必须在下次运行补写 |
+
+### 4.9.4 模块与主链路阶段映射
+
+所有主链路阶段必须按以下映射推进：
+
+| 阶段 | 主责模块 | 协作模块 | 最低输出 | 阻断条件 |
+|---|---|---|---|---|
+| `input_validation` | `Input Validator` | `Run Orchestrator`、`Diagnostic Reporter` | `InputValidationReport` | 任一 `blocking` 校验未修复 |
+| `asset_indexing` | `Project Workspace` | `Artifact & Version Store`、`Diagnostic Reporter` | `asset_index` | 无最小可用素材集 |
+| `story_parsing` | `Story Parser` | `Run Orchestrator`、`Diagnostic Reporter` | 候选故事骨架草案 | 游记解析失败且无法形成最低骨架 |
+| `story_skeleton_confirmation` | `Story Skeleton Confirmation` | `Project Workspace`、`Artifact & Version Store` | `story_version` | 用户未确认或需返回修正 |
+| `media_analysis` | `Media Analyzer` | `Artifact & Version Store`、`Diagnostic Reporter` | `media_analysis_pack` | 无法得到最小可用镜头集合 |
+| `alignment` | `Alignment Engine` | `Artifact & Version Store`、`Diagnostic Reporter` | `alignment_version` | 上游故事骨架未确认，或匹配结果需转人工确认 |
+| `highlight_confirmation` | `Highlight Confirmation` | `Project Workspace`、`Artifact & Version Store` | `highlight_selection_version` | 高重要度段落仍未完成人工确认 |
+| `edit_planning` | `Edit Planner` | `Artifact & Version Store`、`Diagnostic Reporter` | `timeline_version` | 无最小可用叙事结构 |
+| `narration_tts_subtitles` | `Narration / TTS / Subtitle Engine` | `Artifact & Version Store`、`Diagnostic Reporter` | `narration_pack` | 必需音色不可用且无法恢复 |
+| `audio_mix` | `Audio Composer` | `Artifact & Version Store`、`Diagnostic Reporter` | `audio_mix_pack` | 关键音轨缺失且无法重建 |
+| `render_export` | `Renderer & Exporter` | `Artifact & Version Store`、`Diagnostic Reporter` | `export_bundle` | 渲染失败且需等待重试或重导出 |
+
+阶段映射必须额外满足以下规则：
+
+- `asset_indexing` 完成后，`story_parsing` 与 `media_analysis` 可并行，但状态推进必须仍由 `Run Orchestrator` 统一写入
+- `story_skeleton_confirmation` 与 `highlight_confirmation` 都属于必选人工节点，项目状态必须进入 `awaiting_user`
+- `Diagnostic Reporter` 不拥有独占阶段，但必须在每个阶段完成、降级、失败、恢复时同步更新诊断输出
+
+### 4.9.5 模块输入输出与依赖边界
+
+阶段型模块必须至少遵守以下 `StageContract`：
+
+- `stage_name`
+- `owner_module`
+- `required_inputs[]`
+- `produced_outputs[]`
+- `allowed_statuses[]`
+- `failure_types[]`
+- `recovery_actions[]`
+
+V1 阶段型模块的最低合同如下：
+
+| 模块 | 必要输入 | 输出产物 | 上游依赖 | 允许状态 | 主要失败类型 | 默认恢复动作 | 用户动作关系 |
+|---|---|---|---|---|---|---|---|
+| `Input Validator` | `ProjectInputContract` | `InputValidationReport` | 无 | `succeeded`、`degraded`、`failed_manual` | `input_error` | `require_user_fix_input` | 用户修复输入后重校验 |
+| `Project Workspace` | 已创建项目、`media_files[]` | `asset_index`、项目导入摘要 | `input_validation` 非阻断通过 | `succeeded`、`degraded`、`failed_retryable` | `input_error`、`artifact_error` | `retry_same_node`、`require_user_fix_input` | 无直接确认，但负责展示导入结果 |
+| `Story Parser` | `travel_note`、项目配置 | 候选故事骨架草案、解析摘要 | `asset_index`、`ProjectInputContract` | `succeeded`、`degraded`、`failed_retryable`、`failed_manual` | `confidence_error`、`dependency_error` | `fallback_and_continue`、`retry_same_node`、`require_user_confirmation` | 为故事骨架确认提供初稿 |
+| `Story Skeleton Confirmation` | 候选故事骨架草案 | `story_version`、`UserDecision` | `story_parsing` 完成 | `blocked`、`succeeded` | 无独立系统失败类型，用户返回上一步时视为待确认 | `require_user_confirmation` | 合并、删除、排序、必保留标记 |
+| `Media Analyzer` | `asset_index` | `media_analysis_pack` | `asset_indexing` 完成 | `succeeded`、`degraded`、`failed_retryable`、`failed_manual` | `resource_error`、`dependency_error`、`artifact_error` | `switch_to_lightweight_mode`、`retry_same_node`、`resume_from_last_good_boundary` | 无直接确认，结果供高光确认使用 |
+| `Alignment Engine` | `story_version`、`media_analysis_pack` | `alignment_version`、段落候选镜头集合 | 故事骨架已确认、素材分析已完成 | `succeeded`、`degraded`、`failed_retryable` | `confidence_error`、`resource_error`、`artifact_error` | `semantic_align`、`fallback_and_continue`、`resume_from_last_good_boundary` | 低置信结果必须传递到高光确认 |
+| `Highlight Confirmation` | `alignment_version` | `highlight_selection_version`、`UserDecision` | `alignment` 完成 | `blocked`、`succeeded`、`failed_manual` | `confidence_error` | `require_user_confirmation` | 接受、替换、禁用、纪念性必保留、跳过低重要度段落 |
+| `Edit Planner` | `story_version`、`highlight_selection_version` | `timeline_version` | 高光确认完成 | `succeeded`、`degraded`、`failed_retryable` | `confidence_error`、`artifact_error` | `fallback_and_continue`、`resume_from_last_good_boundary` | 压缩短版时复用既有确认结果 |
+| `Narration / TTS / Subtitle Engine` | `story_version`、`timeline_version`、`tts_voice` | `narration_pack` | `edit_planning` 完成 | `succeeded`、`degraded`、`failed_retryable` | `dependency_error`、`resource_error` | `retry_same_node`、`switch_to_lightweight_mode` | 仅在局部再生成中接受“重写旁白” |
+| `Audio Composer` | `timeline_version`、`narration_pack`、`bgm_asset` | `audio_mix_pack` | `narration_tts_subtitles` 完成 | `succeeded`、`degraded`、`failed_retryable` | `artifact_error`、`dependency_error` | `retry_same_node`、`resume_from_last_good_boundary` | 仅在局部再生成中接受“更换 BGM 并重混音” |
+| `Renderer & Exporter` | `timeline_version`、`audio_mix_pack`、字幕计划 | `export_bundle` | `audio_mix` 完成 | `succeeded`、`degraded`、`failed_retryable` | `export_error`、`resource_error` | `re_export_only`、`switch_to_lightweight_mode` | 用户可从任一可用版本重新导出 |
+
+边界约束如下：
+
+- 阶段型模块只允许消费已确认或已持久化的上游产物，不得读取未冻结的临时界面状态作为正式输入
+- 任一模块若输出 `degraded`，必须同时输出对应的 `fallback_reason`、`fallback_action` 和 `user_message_key`
+- 任一模块若需要人工确认，不得自行把结果写成 `succeeded` 并越过确认节点
+- 任一模块若读取到依赖版本已失效，必须先回退到 `pending` 或 `blocked`，不得继续复用旧产物
+
+### 4.9.6 模块级回退与局部再生成约束
+
+模块级回退和局部再生成必须满足以下映射：
+
+| 入口或异常 | 允许重算模块 | 禁止重算模块 | 必须保留的约束 |
+|---|---|---|---|
+| 仅重写旁白 | `Narration / TTS / Subtitle Engine`、`Audio Composer`、`Renderer & Exporter` | `Story Parser`、`Media Analyzer`、`Alignment Engine` | 沿用最新 `story_version`、`highlight_selection_version` |
+| 仅更换 `BGM` 并重混音 | `Audio Composer`、`Renderer & Exporter` | `Story Parser`、`Media Analyzer`、`Alignment Engine`、`Narration / TTS / Subtitle Engine` | 保留上一版旁白与字幕时间线 |
+| 压缩到更短时长 | `Edit Planner` 及其下游模块 | `Media Analyzer` 及其上游模块 | 不得解除“必须保留”段落和镜头约束 |
+| `metadata_missing` | `Alignment Engine`、`Edit Planner` | `Story Skeleton Confirmation` 之前模块 | 必须切换为 `semantic_align` 并记录诊断 |
+| `insufficient_assets` | `Alignment Engine`、`Highlight Confirmation`、`Edit Planner` | `Media Analyzer` 之前模块 | 高重要度段落不得静默删除，必须落到替代表现或人工确认 |
+| `resource_limited` | 当前运行模块及其下游 | 已确认且与当前降级无关的上游模块 | 必须记录轻量模式切换前后差异 |
+| `export_error` | `Renderer & Exporter` | `Audio Composer` 之前模块 | 必须优先提供 `re_export_only` |
+
+补充要求如下：
+
+- 局部再生成触发后，`Run Orchestrator` 必须只重置受影响节点，不得把整个项目状态回退到 `draft`
+- 任一局部再生成失败时，`Project Workspace` 必须继续暴露上一可用版本预览入口
+- 被用户标记为“不要再用”的镜头和“纪念性必保留”的镜头都属于跨版本约束，局部再生成不得静默丢失
+
+### 4.9.7 模块与交互节点映射
+
+三个必选交互节点必须由以下模块组合承载：
+
+| 交互节点 | 触发模块 | 承载模块 | 冻结产物 | 允许返回范围 | 下游失效范围 |
+|---|---|---|---|---|---|
+| 故事骨架确认 | `Story Parser` | `Story Skeleton Confirmation` + `Project Workspace` | `story_version` | 返回游记解析结果并重新确认 | `alignment` 及其下游 |
+| 高光确认 | `Alignment Engine` | `Highlight Confirmation` + `Project Workspace` | `highlight_selection_version` | 返回故事骨架确认或更换候选镜头 | `edit_planning` 及其下游 |
+| 局部再生成 | 第一版 `export_bundle` 产出后 | `Project Workspace` + `Run Orchestrator` | 新版 `timeline_version`、`narration_pack`、`audio_mix_pack`、`export_bundle` | 返回上一可用版本或继续同入口迭代 | 仅限所选入口涉及的下游模块 |
+
+交互节点必须额外满足以下要求：
+
+- 承载模块必须保存用户动作的结构化 `UserDecision`，不得只保存自然语言备注
+- 每个交互节点都必须显示当前所基于的上游版本标识，避免用户在不知情状态下确认过期结果
+- 用户从交互节点返回上一步后，`Artifact & Version Store` 必须按依赖关系失效下游版本，不得整库清空
+
+### 4.9.8 V1 不纳入模块职责的能力
+
+以下能力不得被任何 V1 模块隐式承担：
+
+- 专业级手工时间线编辑器
+- 多风格模板市场和模板编排系统
+- 多平台比例联动导出
+- 深度剪映工程互通
+- 多人协同、云端项目共享和跨设备实时同步
+- 用户长期偏好学习与跨项目个性化推荐
+
+---
+
+## 4.10 技术方案草案
+
+### 4.10.1 架构原则
+
+V1 技术方案必须满足以下原则：
+
+- 采用本地桌面应用 + 本地处理服务的双层运行架构
+- 以状态驱动执行，以版本化产物驱动恢复
+- 以能力接口隔离具体模型、媒体工具和第三方实现
+- 以模块级重试和局部再生成替代项目级重跑
+- 以结构化诊断替代自由文本报错
+
+### 4.10.2 运行架构分层
+
+| 运行层 | 主要内容 | 必须承担的责任 | 不得承担的责任 |
+|---|---|---|---|
+| `Desktop Client` | 桌面端 UI、项目管理、确认节点、预览与导出入口 | 项目创建、输入组织、进度展示、用户决策采集、版本切换 | 不直接执行重型媒体分析、渲染和状态编排 |
+| `Local Processing Service` | 本地长任务执行与编排进程 | 节点调度、模型调用、媒体分析、版本写入、恢复执行、重试控制 | 不直接决定 UI 呈现和交互文案布局 |
+| `Capability Providers` | 元数据提取、镜头切分、文本理解、语音识别、视觉标签、TTS、渲染等可替换能力 | 按约定输入输出执行单点能力，返回结构化结果 | 不拥有项目状态，不直接写入项目完成状态 |
+| `Storage & Artifact Layer` | 本地数据库、缓存目录、导出目录、诊断目录 | 持久化配置、版本依赖、诊断文件、导出产物 | 不绕过编排层自行决定失效和恢复 |
+
+### 4.10.3 客户端职责
+
+客户端职责固定如下：
+
+- 组装 `ProjectInputContract` 并发起项目创建
+- 展示 `ProjectRunStatus`、阶段进度、剩余时间估计和失败入口
+- 承载故事骨架确认、高光确认、局部再生成三个必选交互节点
+- 展示版本列表、导出结果、诊断摘要和可恢复动作
+- 按 `user_message_key` 渲染用户提示，不得直接暴露原始错误栈
+
+客户端约束如下：
+
+- 客户端可缓存预览和轻量摘要，但不得作为正式版本来源
+- 客户端不得绕过 `Run Orchestrator` 直接修改节点状态
+- 客户端发起局部再生成时，必须显式携带所基于的版本标识
+
+### 4.10.4 本地处理服务职责
+
+本地处理服务职责固定如下：
+
+- 接收客户端发起的项目运行、恢复执行和局部再生成请求
+- 作为 `ProjectRunStatus` 与 `TaskNodeStatus` 的唯一写入方
+- 按 `4.6.2` 的阶段依赖关系编排自动任务和人工阻塞节点
+- 调用能力提供层并汇总结果为统一产物格式
+- 向 `Artifact & Version Store` 写入可版本化中间产物
+- 在失败、降级、恢复和重试时向 `Diagnostic Reporter` 发出结构化事件
+
+服务层约束如下：
+
+- 服务层不得把特定模型或第三方工具的内部状态直接暴露给客户端作为产品状态
+- 服务层必须在恢复执行前先校验依赖版本是否仍有效
+- 服务层必须支持并行执行 `story_parsing` 与 `media_analysis`，但不得并行推进需要人工确认的下游节点
+
+### 4.10.5 能力提供层边界
+
+能力提供层只定义能力类别、输入输出和替换原则，不把具体技术选型写成 V1 验收前提。
+
+| 能力类别 | 最低输入 | 最低输出 | 替换原则 |
+|---|---|---|---|
+| 元数据提取 | 原始媒体文件 | 时间、地点、时长、方向、基础可读性信息 | 可替换实现必须保持字段语义一致 |
+| 镜头切分与素材检测 | 视频文件、图片文件 | 镜头区间、素材质量信号、可用性评分 | 可替换实现不得改变 `media_analysis_pack` 的字段合同 |
+| 语音识别与字幕对齐 | 视频音频流 | 转写文本、时间戳、说话片段 | 结果必须可用于字幕与原声判断，不能只返回全文文本 |
+| 视觉标签与相似度 | 镜头帧、图片、故事段落提示 | 场景标签、人物线索、语义相似信号 | 不得把供应商私有评分直接当产品级 `match_confidence` |
+| 文本理解 | 游记文本、故事上下文 | 故事段落、情绪与事件线索、旁白改写结果 | 输出必须可解释并支持低结构回退 |
+| TTS | 旁白文本、音色标识 | 可混音的语音文件、时长和切句信息 | 音色实现可替换，但 `tts_voice` 语义必须稳定 |
+| 渲染与混音 | 时间线、字幕、音轨计划 | 导出视频、音频和相关日志 | 导出失败时必须支持 `re_export_only`，不得清理上游版本 |
+
+能力层约束如下：
+
+- 任一能力调用失败时，必须返回可映射到 `failure_type` 的结构化错误，而不是只返回自由文本
+- 任一能力若支持轻量模式，必须由服务层触发切换，不能自行更改项目模式
+- 视觉、文本、TTS 等能力的具体实现允许升级替换，但不得改变上层 `ArtifactVersion` 和 `DiagnosticBundle` 的合同
+
+### 4.10.6 存储与版本边界
+
+所有中间产物必须通过统一的 `ArtifactVersion` 模型持久化。
+
+| 产物名 | 用途 | 上游依赖 | 失效条件 |
+|---|---|---|---|
+| `asset_index` | 素材索引与基础媒体清单 | `ProjectInputContract` | 导入素材集合变化 |
+| `story_version` | 已确认故事骨架 | 候选故事骨架草案、用户确认 | 用户修改段落顺序、合并、删除、高光标记 |
+| `media_analysis_pack` | 镜头切分、质量评分、原声兴趣信号 | `asset_index` | 素材集合变化或分析模式变化导致版本不兼容 |
+| `alignment_version` | 段落与镜头候选匹配结果 | `story_version`、`media_analysis_pack` | 故事骨架变化、素材分析版本变化 |
+| `highlight_selection_version` | 已确认高光选择、禁用规则、必保留镜头 | `alignment_version`、用户确认 | 用户替换候选镜头或返回上一步修改 |
+| `timeline_version` | 可执行时间线与节奏规划 | `story_version`、`highlight_selection_version` | 高光选择变化、短版重排、上游版本失效 |
+| `narration_pack` | 旁白文案、TTS 语音、字幕计划 | `story_version`、`timeline_version`、`tts_voice` | 旁白重写、音色切换、时间线变化 |
+| `audio_mix_pack` | 混音计划和中间音频产物 | `timeline_version`、`narration_pack`、`bgm_asset` | 更换 `BGM`、旁白重写、时间线变化 |
+| `export_bundle` | 成片与导出清单 | `timeline_version`、`audio_mix_pack` | 导出参数变化或重导出 |
+| `diagnostic_bundle` | 运行摘要、段落诊断、回退事件和日志 | 全流程事件流 | 缺失文件时应补写，不影响已有成片版本 |
+
+存储边界必须满足以下要求：
+
+- 每个 `ArtifactVersion` 都必须记录 `version_id`、`producer_stage`、`upstream_versions`、`created_at`、`storage_path`
+- 任何下游产物被读取前，都必须先校验其 `upstream_versions` 与当前活动版本是否一致
+- 导出失败时不得删除 `timeline_version`、`narration_pack`、`audio_mix_pack`
+
+### 4.10.7 执行模型与并发约束
+
+执行模型必须满足以下规则：
+
+- `input_validation` 成功前，任何自动分析任务都不得启动
+- `asset_indexing` 完成后，仅允许 `story_parsing` 与 `media_analysis` 并行执行
+- 任一人工确认节点激活后，所有依赖该节点的下游自动任务必须保持 `blocked`
+- 模块级重试必须从最近有效边界恢复，不得默认清空全量缓存
+- 局部再生成必须视为新的运行版本，但默认继承上一次确认过的故事骨架和高光选择
+- 同一项目同时只能存在一个写入正式活动版本的编排流程；若用户发起新的重算请求，旧流程必须被 `canceled` 或挂起
+
+### 4.10.8 接口与事件边界
+
+V1 至少需要固定以下文档级接口对象：
+
+#### `StageContract`
+
+| 字段 | 含义 |
+|---|---|
+| `stage_name` | 阶段唯一标识，必须与 `4.6.2` 一致 |
+| `owner_module` | 阶段主责模块 |
+| `required_inputs[]` | 执行前必须可用的上游输入或版本 |
+| `produced_outputs[]` | 阶段成功或降级时必须产出的产物 |
+| `allowed_statuses[]` | 该阶段允许进入的节点状态集合 |
+| `failure_types[]` | 允许抛出的统一失败分类 |
+| `recovery_actions[]` | 允许采用的恢复动作集合 |
+
+#### `ArtifactVersion`
+
+| 字段 | 含义 |
+|---|---|
+| `artifact_name` | 产物名称，如 `story_version` |
+| `version_id` | 产物版本唯一标识 |
+| `producer_stage` | 生成该产物的阶段 |
+| `producer_run_id` | 生成该版本的运行实例 |
+| `upstream_versions` | 上游依赖版本映射 |
+| `created_at` | 生成时间 |
+| `status` | 当前版本状态，如 `active`、`superseded`、`invalidated` |
+| `storage_path` | 产物落盘位置 |
+| `invalidated_by` | 失效原因或替换来源 |
+
+#### `UserDecision`
+
+| 字段 | 含义 |
+|---|---|
+| `decision_id` | 用户动作唯一标识 |
+| `node_name` | 所属交互节点 |
+| `decision_type` | 动作类型，如确认、替换、跳过、保留版本 |
+| `decision_payload` | 结构化动作内容 |
+| `based_on_version` | 用户决策所基于的版本标识 |
+| `operator` | 触发用户或本地操作者 |
+| `decided_at` | 动作时间 |
+
+#### `RecoveryActionRecord`
+
+| 字段 | 含义 |
+|---|---|
+| `failure_type` | 触发恢复的失败分类 |
+| `failure_code` | 结构化失败码 |
+| `recovery_action` | 实际采用的恢复动作 |
+| `resume_from` | 恢复起点阶段或版本 |
+| `preserved_versions[]` | 恢复时继续复用的版本 |
+| `triggered_at` | 恢复触发时间 |
+
+#### `ModuleOutputPolicy`
+
+| 字段 | 含义 |
+|---|---|
+| `module_name` | 模块名称 |
+| `supports_degraded` | 是否允许以 `degraded` 完成 |
+| `requires_diagnostic_bundle` | 是否必须同步写诊断输出 |
+| `reusable_when` | 允许复用旧版本的前提 |
+| `must_block_when` | 必须阻断并等待人工或修复的条件 |
+
+#### `CapabilityBoundary`
+
+| 字段 | 含义 |
+|---|---|
+| `capability_name` | 能力类别名称 |
+| `owned_by_service` | 是否由本地处理服务统一调度 |
+| `input_contract` | 该能力允许接收的正式输入 |
+| `output_contract` | 该能力必须返回的正式输出 |
+| `swappable` | 是否允许替换实现 |
+| `product_invariants[]` | 替换后仍不得破坏的产品级约束 |
+
+#### `DiagnosticBundle`
+
+| 字段 | 含义 |
+|---|---|
+| `run_summary` | 项目级状态、失败节点、恢复入口和提示键 |
+| `input_validation_report` | 输入校验与软风险结果 |
+| `segment_diagnostics` | 段落级覆盖、置信度和用户决策 |
+| `fallback_events` | 回退事件流 |
+| `node_status_timeline` | 节点状态演进时间线 |
+| `export_report` | 导出过程与重导出入口 |
+| `runtime_logs` | 原始日志与错误栈位置 |
+
+接口边界必须满足以下要求：
+
+- 文档级接口字段名在后续实现中允许做语言映射，但语义不得改变
+- 任一模块和能力实现都不得自行扩展一套与上述接口平行的状态、版本或诊断协议
+- 用户界面、日志、诊断文件之间必须通过这些统一对象互相追溯
+
+### 4.10.9 本地与联网边界
+
+V1 默认本地执行，联网仅作为增强能力。
+
+必须明确以下规则：
+
+- 素材文件、故事骨架、高光选择、时间线和导出产物默认不离开本机
+- 若后续引入可选云端增强，必须明确标记触发条件、上传范围和联网失败后的回退路径
+- 联网失败不得使已可在本地完成的主链路直接失败
+- 任一云端增强结果若参与正式产物生成，仍必须转换为统一 `ArtifactVersion` 后再进入下游模块
+
+### 4.10.10 V1 技术非目标
+
+V1 技术方案不以以下能力为前提：
+
+- 插件市场或通用插件运行时
+- 远程任务队列、分布式执行和多机协同
+- 专业级时间线编辑器内核
+- 深度剪映工程格式读写
+- 长期用户画像和跨项目偏好学习系统
+
+---
+
+## 5. 后续可选文档动作
+
+当前文档已补齐运行机制、输入与诊断表达、模块需求和技术方案四个核心约束层。若后续继续扩写，建议优先补充以下内容：
+
+1. 增加“验收用例与测试场景”，把 `V1 成立条件`、回退触发、局部再生成和导出失败恢复落成可执行验收矩阵
+2. 增加“关键交互稿与页面状态”，把故事骨架确认、高光确认、局部再生成三类页面的展示字段和操作反馈写定
+3. 增加“数据字典与产物 schema”，将 `ProjectInputContract`、`ArtifactVersion`、`UserDecision`、`DiagnosticBundle` 扩成统一字段表
 
 如果后续继续扩写，建议把《AI旅行Vlog剪辑系统方案.md》保留为愿景与方案文档，把本文作为正式 PRD 主文档继续演进。

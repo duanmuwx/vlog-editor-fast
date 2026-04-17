@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from typing import Optional, List
+from datetime import datetime
 
 from src.shared.types import ProjectInputContract, SkeletonConfirmationRequest
 from src.server.modules.project_manager import ProjectManager
@@ -703,6 +704,196 @@ async def regenerate(project_id: str, regen_type: str, request: dict = None):
             "status": export_bundle.status,
             "created_at": export_bundle.created_at
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# Phase 5: Version Management & Recovery
+
+@router.get("/{project_id}/versions/{artifact_type}")
+async def get_version_history(project_id: str, artifact_type: str):
+    """Get version history for artifact type."""
+    try:
+        from src.server.modules.artifact_store import ArtifactStore
+
+        history = ArtifactStore.get_version_history(project_id, artifact_type)
+        return {
+            "artifact_type": history.artifact_type,
+            "project_id": history.project_id,
+            "active_version_id": history.active_version_id,
+            "versions": [
+                {
+                    "version_id": v.version_id,
+                    "status": v.status,
+                    "created_at": v.created_at.isoformat(),
+                    "upstream_versions": v.upstream_versions
+                }
+                for v in history.versions
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/versions/{artifact_type}/{version_id}/switch")
+async def switch_version(project_id: str, artifact_type: str, version_id: str):
+    """Switch to specified version."""
+    try:
+        from src.server.modules.artifact_store import ArtifactStore
+
+        version = ArtifactStore.switch_to_version(project_id, artifact_type, version_id)
+        return {
+            "version_id": version.version_id,
+            "artifact_type": version.artifact_type,
+            "status": version.status,
+            "created_at": version.created_at.isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/versions/{artifact_type}/{v1_id}/diff/{v2_id}")
+async def get_version_diff(project_id: str, artifact_type: str, v1_id: str, v2_id: str):
+    """Compare two versions."""
+    try:
+        from src.server.modules.artifact_store import ArtifactStore
+
+        diff = ArtifactStore.get_version_diff(project_id, v1_id, v2_id)
+        return diff
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/runs")
+async def get_runs(project_id: str):
+    """Get all runs for project."""
+    try:
+        from src.server.storage.database import get_or_create_db
+        from src.server.storage.schemas import RunRecordEnhanced
+
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+
+        try:
+            runs = session.query(RunRecordEnhanced).filter_by(
+                project_id=project_id
+            ).order_by(RunRecordEnhanced.started_at.desc()).all()
+
+            return {
+                "total_runs": len(runs),
+                "runs": [
+                    {
+                        "run_id": r.run_id,
+                        "run_type": r.run_type,
+                        "state": r.state,
+                        "started_at": r.started_at.isoformat(),
+                        "ended_at": r.ended_at.isoformat() if r.ended_at else None
+                    }
+                    for r in runs
+                ]
+            }
+        finally:
+            session.close()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/runs/{run_id}/resume")
+async def resume_run(project_id: str, run_id: str, request: dict = None):
+    """Resume execution from failure point."""
+    try:
+        failed_stage = request.get("failed_stage", "edit_planning") if request else "edit_planning"
+
+        export_bundle = await RunOrchestrator.resume_from_failure(
+            project_id, run_id, failed_stage
+        )
+
+        return {
+            "export_id": export_bundle.export_id,
+            "version_id": export_bundle.version_id,
+            "video_path": export_bundle.video_path,
+            "status": export_bundle.status,
+            "created_at": export_bundle.created_at.isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/runs/{run_id}/diagnostics")
+async def get_run_diagnostics(project_id: str, run_id: str, format: str = "json"):
+    """Get diagnostic bundle for run."""
+    try:
+        from src.server.storage.database import get_or_create_db
+        from src.server.storage.schemas import RunRecordEnhanced
+
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+
+        try:
+            run_record = session.query(RunRecordEnhanced).filter_by(
+                run_id=run_id
+            ).first()
+
+            if not run_record:
+                raise HTTPException(status_code=404, detail="Run not found")
+
+            bundle = DiagnosticReporter.generate_diagnostic_bundle(
+                project_id, run_id, run_record,
+                performance_metrics=run_record.performance_metrics
+            )
+
+            if format == "markdown":
+                return {"content": DiagnosticReporter.export_diagnostic_bundle(bundle, "markdown")}
+            elif format == "html":
+                return {"content": DiagnosticReporter.export_diagnostic_bundle(bundle, "html")}
+            else:
+                return bundle.dict()
+
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/runs/{run_id}/retry/{stage_name}")
+async def retry_stage(project_id: str, run_id: str, stage_name: str):
+    """Retry specific stage."""
+    try:
+        from src.server.storage.database import get_or_create_db
+        from src.server.storage.schemas import TaskStateRecordEnhanced
+
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+
+        try:
+            task = session.query(TaskStateRecordEnhanced).filter(
+                TaskStateRecordEnhanced.run_id == run_id,
+                TaskStateRecordEnhanced.stage_name == stage_name
+            ).first()
+
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found")
+
+            # Reset task state for retry
+            task.status = "running"
+            task.attempt += 1
+            task.started_at = datetime.utcnow()
+            task.ended_at = None
+            task.error_message = None
+            session.commit()
+
+            return {
+                "task_id": task.task_id,
+                "stage_name": task.stage_name,
+                "attempt": task.attempt,
+                "status": task.status
+            }
+        finally:
+            session.close()
     except HTTPException:
         raise
     except Exception as e:

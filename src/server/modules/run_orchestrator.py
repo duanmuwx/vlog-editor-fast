@@ -1,8 +1,15 @@
 """Run orchestration - manage state machine and task scheduling."""
 
 import uuid
+import asyncio
+import logging
 from datetime import datetime
-from src.shared.types import ExportBundle, ProjectStatus
+from typing import Callable, Optional, Dict, List
+from src.shared.types import (
+    ExportBundle, ProjectStatus, RunType, RunState, TaskStatus,
+    ErrorType, TaskStateRecord as TaskStateType, ErrorInfo,
+    RecoverySuggestion, PerformanceMetrics, RunRecord as RunRecordType
+)
 from src.server.storage.database import get_or_create_db
 from src.server.storage.schemas import (
     RunRecord, TaskStateRecord, ProjectRecord
@@ -13,47 +20,118 @@ from src.server.modules.audio_composer import AudioComposer
 from src.server.modules.renderer import Renderer
 from src.server.modules.diagnostic_reporter import DiagnosticReporter
 
+logger = logging.getLogger(__name__)
+
+
+class RetryableError(Exception):
+    """Error that can be retried."""
+    pass
+
+
+class ResourceError(Exception):
+    """Resource-related error."""
+    pass
+
+
+class ValidationError(Exception):
+    """Validation error."""
+    pass
+
+
+class DependencyError(Exception):
+    """Dependency validation error."""
+    pass
+
 
 class RunOrchestrator:
     """Manages project state machine and task scheduling."""
 
     @staticmethod
+    async def run_with_retry(
+        stage_name: str,
+        stage_func: Callable,
+        max_retries: int = 3,
+        backoff_factor: float = 2.0
+    ) -> TaskStateType:
+        """Execute stage with retry logic."""
+        for attempt in range(max_retries):
+            try:
+                result = await stage_func()
+                return TaskStateType(
+                    task_id=str(uuid.uuid4()),
+                    run_id="",
+                    stage_name=stage_name,
+                    status=TaskStatus.SUCCEEDED,
+                    started_at=datetime.utcnow(),
+                    ended_at=datetime.utcnow(),
+                    attempt=attempt + 1
+                )
+            except RetryableError as e:
+                if attempt < max_retries - 1:
+                    wait_time = backoff_factor ** attempt
+                    logger.warning(
+                        f"Stage {stage_name} failed (attempt {attempt + 1}), "
+                        f"retrying in {wait_time}s: {str(e)}"
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    return TaskStateType(
+                        task_id=str(uuid.uuid4()),
+                        run_id="",
+                        stage_name=stage_name,
+                        status=TaskStatus.FAILED_RETRYABLE,
+                        started_at=datetime.utcnow(),
+                        ended_at=datetime.utcnow(),
+                        attempt=attempt + 1,
+                        error_message=str(e),
+                        error_type=ErrorType.RETRYABLE
+                    )
+            except Exception as e:
+                return TaskStateType(
+                    task_id=str(uuid.uuid4()),
+                    run_id="",
+                    stage_name=stage_name,
+                    status=TaskStatus.FAILED_MANUAL,
+                    started_at=datetime.utcnow(),
+                    ended_at=datetime.utcnow(),
+                    attempt=attempt + 1,
+                    error_message=str(e),
+                    error_type=ErrorType.MANUAL
+                )
+
+    @staticmethod
     def run_phase4(project_id: str, bgm_asset: str, tts_voice: str) -> ExportBundle:
-        """
-        Execute Phase 4 pipeline: edit planning → narration → audio → rendering.
-
-        Args:
-            project_id: Project ID
-            bgm_asset: Path to BGM asset
-            tts_voice: TTS voice to use
-
-        Returns:
-            ExportBundle with final video and outputs
-        """
+        """Execute Phase 4 pipeline: edit planning → narration → audio → rendering."""
         db = get_or_create_db(project_id)
         session = db.get_session()
 
         run_id = str(uuid.uuid4())
+        start_time = datetime.utcnow()
+        stage_durations = {}
 
         try:
-            # Create run record
             run_record = RunRecord(
                 run_id=run_id,
                 project_id=project_id,
-                started_at=datetime.utcnow(),
-                status="running"
+                started_at=start_time,
+                status="running",
+                run_type=RunType.FULL_PIPELINE.value
             )
             session.add(run_record)
             session.commit()
 
             # Stage 1: Edit Planning
+            stage_start = datetime.utcnow()
             RunOrchestrator._execute_stage(
                 session, run_id, "edit_planning", "Generating timeline"
             )
             timeline = EditPlanner.plan_edit(project_id)
             RunOrchestrator._complete_stage(session, run_id, "edit_planning")
+            stage_durations["edit_planning"] = (datetime.utcnow() - stage_start).total_seconds()
 
             # Stage 2: Narration Generation
+            stage_start = datetime.utcnow()
             RunOrchestrator._execute_stage(
                 session, run_id, "narration_generation", "Generating narration"
             )
@@ -61,8 +139,10 @@ class RunOrchestrator:
                 project_id, timeline.timeline_id, tts_voice
             )
             RunOrchestrator._complete_stage(session, run_id, "narration_generation")
+            stage_durations["narration_generation"] = (datetime.utcnow() - stage_start).total_seconds()
 
             # Stage 3: Audio Composition
+            stage_start = datetime.utcnow()
             RunOrchestrator._execute_stage(
                 session, run_id, "audio_composition", "Mixing audio"
             )
@@ -70,8 +150,10 @@ class RunOrchestrator:
                 project_id, timeline.timeline_id, narration.narration_id, bgm_asset
             )
             RunOrchestrator._complete_stage(session, run_id, "audio_composition")
+            stage_durations["audio_composition"] = (datetime.utcnow() - stage_start).total_seconds()
 
             # Stage 4: Rendering
+            stage_start = datetime.utcnow()
             RunOrchestrator._execute_stage(
                 session, run_id, "rendering", "Rendering video"
             )
@@ -79,13 +161,16 @@ class RunOrchestrator:
                 project_id, timeline.timeline_id, audio_mix.audio_mix_id, narration.narration_id
             )
             RunOrchestrator._complete_stage(session, run_id, "rendering")
+            stage_durations["rendering"] = (datetime.utcnow() - stage_start).total_seconds()
 
-            # Update run record
             run_record.ended_at = datetime.utcnow()
             run_record.status = "completed"
+            run_record.performance_metrics = {
+                "total_duration_seconds": (run_record.ended_at - start_time).total_seconds(),
+                "stage_durations": stage_durations
+            }
             session.commit()
 
-            # Update project status
             project = session.query(ProjectRecord).filter_by(
                 project_id=project_id
             ).first()
@@ -93,10 +178,10 @@ class RunOrchestrator:
                 project.status = ProjectStatus.EXPORTED.value
                 session.commit()
 
+            logger.info(f"Phase 4 completed for project {project_id}")
             return export_bundle
 
         except Exception as e:
-            # Handle failure
             RunOrchestrator._handle_failure(project_id, run_id, e, session)
             raise
 
@@ -104,34 +189,20 @@ class RunOrchestrator:
             session.close()
 
     @staticmethod
-    def regenerate_narration(
-        project_id: str,
-        tts_voice: str
-    ) -> ExportBundle:
-        """
-        Regenerate narration only, reuse timeline and audio mix.
-
-        Args:
-            project_id: Project ID
-            tts_voice: TTS voice to use
-
-        Returns:
-            ExportBundle with regenerated narration
-        """
+    def regenerate_narration(project_id: str, tts_voice: str) -> ExportBundle:
+        """Regenerate narration only, reuse timeline and audio mix."""
         db = get_or_create_db(project_id)
         session = db.get_session()
 
         try:
             from src.server.modules.artifact_store import ArtifactStore
 
-            # Get active timeline and audio mix
             timeline_version = ArtifactStore.get_active_version(project_id, "timeline")
             audio_mix_version = ArtifactStore.get_active_version(project_id, "audio_mix")
 
             if not timeline_version or not audio_mix_version:
                 raise ValueError("No active timeline or audio mix found")
 
-            # Get timeline and audio mix records
             from src.server.storage.schemas import TimelineRecord, AudioMixRecord
 
             timeline_record = session.query(TimelineRecord).filter_by(
@@ -142,12 +213,10 @@ class RunOrchestrator:
                 version_id=audio_mix_version.version_id
             ).first()
 
-            # Regenerate narration
             narration = NarrationEngine.generate_narration(
                 project_id, timeline_record.timeline_id, tts_voice
             )
 
-            # Render with new narration
             export_bundle = Renderer.render_export(
                 project_id,
                 timeline_record.timeline_id,
@@ -162,30 +231,19 @@ class RunOrchestrator:
 
     @staticmethod
     def regenerate_audio(project_id: str, bgm_asset: str) -> ExportBundle:
-        """
-        Regenerate audio only, reuse timeline and narration.
-
-        Args:
-            project_id: Project ID
-            bgm_asset: Path to BGM asset
-
-        Returns:
-            ExportBundle with regenerated audio
-        """
+        """Regenerate audio only, reuse timeline and narration."""
         db = get_or_create_db(project_id)
         session = db.get_session()
 
         try:
             from src.server.modules.artifact_store import ArtifactStore
 
-            # Get active timeline and narration
             timeline_version = ArtifactStore.get_active_version(project_id, "timeline")
             narration_version = ArtifactStore.get_active_version(project_id, "narration")
 
             if not timeline_version or not narration_version:
                 raise ValueError("No active timeline or narration found")
 
-            # Get records
             from src.server.storage.schemas import TimelineRecord, NarrationRecord
 
             timeline_record = session.query(TimelineRecord).filter_by(
@@ -196,7 +254,6 @@ class RunOrchestrator:
                 version_id=narration_version.version_id
             ).first()
 
-            # Regenerate audio mix
             audio_mix = AudioComposer.compose_audio(
                 project_id,
                 timeline_record.timeline_id,
@@ -204,7 +261,6 @@ class RunOrchestrator:
                 bgm_asset
             )
 
-            # Render with new audio
             export_bundle = Renderer.render_export(
                 project_id,
                 timeline_record.timeline_id,
@@ -218,27 +274,14 @@ class RunOrchestrator:
             session.close()
 
     @staticmethod
-    def regenerate_shorter(
-        project_id: str,
-        target_seconds: float
-    ) -> ExportBundle:
-        """
-        Regenerate with shorter duration, reuse narration.
-
-        Args:
-            project_id: Project ID
-            target_seconds: Target duration in seconds
-
-        Returns:
-            ExportBundle with shorter video
-        """
+    def regenerate_shorter(project_id: str, target_seconds: float) -> ExportBundle:
+        """Regenerate with shorter duration, reuse narration."""
         db = get_or_create_db(project_id)
         session = db.get_session()
 
         try:
             from src.server.modules.artifact_store import ArtifactStore
 
-            # Get active timeline and narration
             timeline_version = ArtifactStore.get_active_version(project_id, "timeline")
             narration_version = ArtifactStore.get_active_version(project_id, "narration")
             audio_mix_version = ArtifactStore.get_active_version(project_id, "audio_mix")
@@ -246,7 +289,6 @@ class RunOrchestrator:
             if not all([timeline_version, narration_version, audio_mix_version]):
                 raise ValueError("Missing active versions")
 
-            # Get records
             from src.server.storage.schemas import (
                 TimelineRecord, NarrationRecord, AudioMixRecord
             )
@@ -263,7 +305,6 @@ class RunOrchestrator:
                 version_id=audio_mix_version.version_id
             ).first()
 
-            # Render with shorter duration
             export_bundle = Renderer.render_export(
                 project_id,
                 timeline_record.timeline_id,
@@ -311,14 +352,12 @@ class RunOrchestrator:
         session
     ) -> None:
         """Handle failure: log diagnostics, preserve intermediate products."""
-        # Update run record
         run_record = session.query(RunRecord).filter_by(run_id=run_id).first()
         if run_record:
             run_record.status = "failed"
             run_record.ended_at = datetime.utcnow()
             session.commit()
 
-        # Log diagnostic
         DiagnosticReporter.log_diagnostic(
             project_id,
             run_id,

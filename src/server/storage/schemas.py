@@ -356,3 +356,71 @@ class FallbackEventRecord(Base):
     action = Column(String, nullable=False)
     details = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# Phase 5: Version Management & Recovery
+
+class VersionHistoryRecord(Base):
+    """Version history table."""
+    __tablename__ = "version_histories"
+
+    history_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    artifact_type = Column(String, nullable=False)
+    version_id = Column(String, ForeignKey("artifact_versions.version_id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=False)
+    reused_from = Column(String, nullable=True)
+
+
+class ArtifactDependencyRecord(Base):
+    """Artifact dependencies table."""
+    __tablename__ = "artifact_dependencies"
+
+    dependency_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    downstream_artifact_id = Column(String, nullable=False)
+    upstream_artifact_id = Column(String, nullable=False)
+    upstream_artifact_type = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RunRecordEnhanced(Base):
+    """Enhanced run records table for Phase 5."""
+    __tablename__ = "run_records_enhanced"
+
+    run_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    run_type = Column(String, nullable=False)  # full_pipeline, regenerate_narration, etc.
+    state = Column(String, nullable=False)  # initializing, running, completed, failed, etc.
+    started_at = Column(DateTime, default=datetime.utcnow)
+    ended_at = Column(DateTime, nullable=True)
+    error_info = Column(JSON, nullable=True)
+    recovery_suggestions = Column(JSON, nullable=True)
+    performance_metrics = Column(JSON, nullable=True)
+
+
+class TaskStateRecordEnhanced(Base):
+    """Enhanced task states table for Phase 5."""
+    __tablename__ = "task_states_enhanced"
+
+    task_id = Column(String, primary_key=True)
+    run_id = Column(String, ForeignKey("run_records_enhanced.run_id"), nullable=False)
+    stage_name = Column(String, nullable=False)
+    status = Column(String, nullable=False)  # running, succeeded, degraded, failed_retryable, failed_manual
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+    attempt = Column(Integer, default=1)
+    error_message = Column(String, nullable=True)
+    error_type = Column(String, nullable=True)
+
+
+class DiagnosticBundleRecord(Base):
+    """Diagnostic bundles table."""
+    __tablename__ = "diagnostic_bundles"
+
+    bundle_id = Column(String, primary_key=True)
+    run_id = Column(String, ForeignKey("run_records_enhanced.run_id"), nullable=False)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    diagnostic_bundle = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

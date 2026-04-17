@@ -261,3 +261,155 @@ class ArtifactVersion(BaseModel):
     status: str  # "active", "superseded", "invalidated"
     created_at: datetime
     invalidated_at: Optional[datetime] = None
+
+
+# Phase 5: Version Management & Recovery
+
+class RunType(str, Enum):
+    """Run execution types."""
+    FULL_PIPELINE = "full_pipeline"
+    REGENERATE_NARRATION = "regenerate_narration"
+    REGENERATE_AUDIO = "regenerate_audio"
+    REGENERATE_SHORTER = "regenerate_shorter"
+
+
+class RunState(str, Enum):
+    """Run execution states."""
+    INITIALIZING = "initializing"
+    RUNNING = "running"
+    AWAITING_USER = "awaiting_user"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED_RETRYABLE = "failed_retryable"
+    FAILED_MANUAL = "failed_manual"
+
+
+class TaskStatus(str, Enum):
+    """Task execution status."""
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    DEGRADED = "degraded"
+    FAILED_RETRYABLE = "failed_retryable"
+    FAILED_MANUAL = "failed_manual"
+
+
+class ErrorType(str, Enum):
+    """Error classification types."""
+    RETRYABLE = "retryable"
+    RESOURCE = "resource"
+    VALIDATION = "validation"
+    DEPENDENCY = "dependency"
+    MANUAL = "manual"
+
+
+class TaskStateRecord(BaseModel):
+    """Task execution state record."""
+    task_id: str
+    run_id: str
+    stage_name: str
+    status: TaskStatus
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    attempt: int = 1
+    error_message: Optional[str] = None
+    error_type: Optional[ErrorType] = None
+
+
+class ErrorInfo(BaseModel):
+    """Error information."""
+    error_type: ErrorType
+    error_message: str
+    stage_name: str
+    timestamp: datetime
+    context: Dict = {}
+
+
+class RecoverySuggestion(BaseModel):
+    """Recovery suggestion for error."""
+    error_type: ErrorType
+    suggestion: str
+    action: str  # "retry", "regenerate", "manual_fix", etc.
+    priority: int  # 1-5, 5 is highest
+
+
+class PerformanceMetrics(BaseModel):
+    """Performance metrics for run."""
+    total_duration_seconds: float
+    stage_durations: Dict[str, float] = {}
+    memory_peak_mb: float = 0.0
+    disk_usage_mb: float = 0.0
+
+
+class RunRecord(BaseModel):
+    """Run execution record."""
+    run_id: str
+    project_id: str
+    run_type: RunType
+    state: RunState
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    task_states: Dict[str, TaskStateRecord] = {}
+    error_info: Optional[ErrorInfo] = None
+    recovery_suggestions: List[RecoverySuggestion] = []
+    performance_metrics: Optional[PerformanceMetrics] = None
+
+
+class DiagnosticEvent(BaseModel):
+    """Single diagnostic event."""
+    event_id: str
+    event_type: str  # "error", "warning", "info"
+    stage_name: str
+    message: str
+    timestamp: datetime
+    context: Dict = {}
+
+
+class DiagnosticBundle(BaseModel):
+    """Complete diagnostic bundle for a run."""
+    run_id: str
+    project_id: str
+    run_summary: Dict  # Summary of run
+
+    # Stage diagnostics
+    input_validation_report: Optional[Dict] = None
+    story_parsing_diagnostics: Optional[Dict] = None
+    media_analysis_diagnostics: Optional[Dict] = None
+    alignment_diagnostics: Optional[Dict] = None
+    edit_planning_diagnostics: Optional[Dict] = None
+    narration_diagnostics: Optional[Dict] = None
+    audio_diagnostics: Optional[Dict] = None
+    rendering_diagnostics: Optional[Dict] = None
+
+    # Error and recovery
+    error_timeline: List[DiagnosticEvent] = []
+    recovery_suggestions: List[RecoverySuggestion] = []
+
+    # Performance
+    performance_metrics: Optional[PerformanceMetrics] = None
+
+    # Logs
+    runtime_logs: str = ""
+    created_at: datetime = None
+
+    def __init__(self, **data):
+        if data.get('created_at') is None:
+            data['created_at'] = datetime.now()
+        super().__init__(**data)
+
+
+class VersionHistory(BaseModel):
+    """Version history for an artifact type."""
+    artifact_type: str
+    project_id: str
+    versions: List[ArtifactVersion] = []
+    active_version_id: Optional[str] = None
+
+
+class ArtifactDependency(BaseModel):
+    """Dependency between artifacts."""
+    dependency_id: str
+    project_id: str
+    downstream_artifact_id: str
+    upstream_artifact_id: str
+    upstream_artifact_type: str
+    created_at: datetime

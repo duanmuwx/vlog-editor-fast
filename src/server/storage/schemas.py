@@ -122,3 +122,63 @@ class SkeletonConfirmationRecord(Base):
     skeleton_id = Column(String, ForeignKey("story_skeletons.skeleton_id"), nullable=False)
     edits = Column(JSON, nullable=False)
     confirmed_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MediaShotRecord(Base):
+    """Media shots table."""
+    __tablename__ = "media_shots"
+
+    shot_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    file_id = Column(String, ForeignKey("media_files.file_id"), nullable=False)
+    shot_type = Column(String, nullable=False)  # "video_shot", "photo"
+    start_time = Column(Float, nullable=True)
+    end_time = Column(Float, nullable=True)
+    duration = Column(Float, nullable=True)
+    quality_score = Column(Float, nullable=False)
+    has_audio = Column(Boolean, nullable=False)
+    visual_features = Column(JSON, nullable=True)
+    confidence = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MediaAnalysisRecord(Base):
+    """Media analysis table."""
+    __tablename__ = "media_analysis"
+
+    analysis_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), unique=True, nullable=False)
+    total_shots = Column(Integer, nullable=False)
+    analysis_status = Column(String, nullable=False)  # "completed", "partial", "degraded"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AlignmentCandidateRecord(Base):
+    """Alignment candidates table."""
+    __tablename__ = "alignment_candidates"
+
+    candidate_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    segment_id = Column(String, ForeignKey("story_segments.segment_id"), nullable=False)
+    shot_id = Column(String, ForeignKey("media_shots.shot_id"), nullable=False)
+    match_score = Column(Float, nullable=False)
+    text_match_score = Column(Float, nullable=False)
+    time_match_score = Column(Float, nullable=True)
+    location_match_score = Column(Float, nullable=True)
+    reasoning = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class HighlightSelectionRecord(Base):
+    """Highlight selections table."""
+    __tablename__ = "highlight_selections"
+
+    selection_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    segment_id = Column(String, ForeignKey("story_segments.segment_id"), unique=True, nullable=False)
+    selected_shot_id = Column(String, ForeignKey("media_shots.shot_id"), nullable=False)
+    user_confirmed = Column(Boolean, nullable=False)
+    alternatives_available = Column(Integer, nullable=False)
+    confirmed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

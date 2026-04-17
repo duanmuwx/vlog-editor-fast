@@ -1,7 +1,7 @@
 """Project API routes."""
 
 from fastapi import APIRouter, HTTPException
-from typing import Optional
+from typing import Optional, List
 
 from src.shared.types import ProjectInputContract, SkeletonConfirmationRequest
 from src.server.modules.project_manager import ProjectManager
@@ -10,6 +10,9 @@ from src.server.modules.asset_indexer import AssetIndexer
 from src.server.modules.story_parser import StoryParser
 from src.server.modules.story_skeleton import StorySkeleton
 from src.server.modules.skeleton_confirmation import SkeletonConfirmation
+from src.server.modules.media_analyzer import MediaAnalyzer
+from src.server.modules.alignment_engine import AlignmentEngine
+from src.server.modules.highlight_confirmation import HighlightConfirmation
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -232,3 +235,181 @@ async def get_current_skeleton(project_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/analyze-media")
+async def analyze_media(project_id: str):
+    """Analyze media files for shots and quality."""
+    try:
+        metadata = ProjectManager.get_project_metadata(project_id)
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        analysis = MediaAnalyzer.analyze_media(project_id)
+        ProjectManager.update_project_status(project_id, "media_analyzed")
+
+        return {
+            "analysis_id": analysis.analysis_id,
+            "project_id": analysis.project_id,
+            "total_shots": analysis.total_shots,
+            "analysis_status": analysis.analysis_status,
+            "shots": [shot.dict() for shot in analysis.shots],
+            "created_at": analysis.created_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/media-analysis")
+async def get_media_analysis(project_id: str):
+    """Retrieve media analysis results."""
+    try:
+        from src.server.storage.database import get_or_create_db
+        from src.server.storage.schemas import MediaAnalysisRecord, MediaShotRecord
+
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+
+        try:
+            analysis_record = session.query(MediaAnalysisRecord).filter_by(project_id=project_id).first()
+
+            if not analysis_record:
+                raise HTTPException(status_code=404, detail="Media analysis not found")
+
+            shot_records = session.query(MediaShotRecord).filter_by(project_id=project_id).all()
+
+            return {
+                "analysis_id": analysis_record.analysis_id,
+                "project_id": analysis_record.project_id,
+                "total_shots": analysis_record.total_shots,
+                "analysis_status": analysis_record.analysis_status,
+                "shots": [
+                    {
+                        "shot_id": s.shot_id,
+                        "file_id": s.file_id,
+                        "shot_type": s.shot_type,
+                        "start_time": s.start_time,
+                        "end_time": s.end_time,
+                        "duration": s.duration,
+                        "quality_score": s.quality_score,
+                        "has_audio": s.has_audio,
+                        "visual_features": s.visual_features,
+                        "confidence": s.confidence,
+                    }
+                    for s in shot_records
+                ],
+                "created_at": analysis_record.created_at
+            }
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/align-media")
+async def align_media(project_id: str):
+    """Align story segments to media."""
+    try:
+        skeleton = StorySkeleton.get_current_skeleton(project_id)
+        if not skeleton:
+            raise HTTPException(status_code=404, detail="No confirmed skeleton found")
+
+        candidates = AlignmentEngine.align_media(project_id, skeleton.skeleton_id)
+        ProjectManager.update_project_status(project_id, "media_aligned")
+
+        return {
+            "total_candidates": len(candidates),
+            "candidates": [cand.dict() for cand in candidates],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/alignment-candidates/{segment_id}")
+async def get_alignment_candidates(project_id: str, segment_id: str):
+    """Get alignment candidates for a segment."""
+    try:
+        from src.server.storage.database import get_or_create_db
+        from src.server.storage.schemas import AlignmentCandidateRecord
+
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+
+        try:
+            candidates = session.query(AlignmentCandidateRecord).filter_by(
+                project_id=project_id, segment_id=segment_id
+            ).order_by(AlignmentCandidateRecord.match_score.desc()).all()
+
+            if not candidates:
+                raise HTTPException(status_code=404, detail="No candidates found for segment")
+
+            return {
+                "segment_id": segment_id,
+                "total_candidates": len(candidates),
+                "candidates": [
+                    {
+                        "candidate_id": c.candidate_id,
+                        "segment_id": c.segment_id,
+                        "shot_id": c.shot_id,
+                        "match_score": c.match_score,
+                        "text_match_score": c.text_match_score,
+                        "time_match_score": c.time_match_score,
+                        "location_match_score": c.location_match_score,
+                        "reasoning": c.reasoning,
+                    }
+                    for c in candidates
+                ]
+            }
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/confirm-highlights")
+async def confirm_highlights(project_id: str, request: dict):
+    """Confirm highlight selections."""
+    try:
+        skeleton = StorySkeleton.get_current_skeleton(project_id)
+        if not skeleton:
+            raise HTTPException(status_code=404, detail="No confirmed skeleton found")
+
+        selections = request.get("selections", [])
+        confirmed = HighlightConfirmation.confirm_highlights(project_id, skeleton.skeleton_id, selections)
+        ProjectManager.update_project_status(project_id, "highlights_confirmed")
+
+        return {
+            "total_selections": len(confirmed),
+            "selections": [sel.dict() for sel in confirmed],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/highlights/current")
+async def get_current_highlights(project_id: str):
+    """Get current confirmed highlights."""
+    try:
+        highlights = HighlightConfirmation.get_current_highlights(project_id)
+        if not highlights:
+            raise HTTPException(status_code=404, detail="No confirmed highlights found")
+
+        return {
+            "total_selections": len(highlights),
+            "selections": [sel.dict() for sel in highlights],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+

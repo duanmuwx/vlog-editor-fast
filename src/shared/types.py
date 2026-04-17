@@ -18,6 +18,9 @@ class ProjectStatus(str, Enum):
     READY = "ready"
     STORY_PARSED = "story_parsed"
     SKELETON_CONFIRMED = "skeleton_confirmed"
+    MEDIA_ANALYZED = "media_analyzed"
+    MEDIA_ALIGNED = "media_aligned"
+    HIGHLIGHTS_CONFIRMED = "highlights_confirmed"
     RUNNING = "running"
     AWAITING_USER = "awaiting_user"
     COMPLETED = "completed"
@@ -97,6 +100,52 @@ class StorySkeleton(BaseModel):
     confirmed_at: Optional[datetime] = None
     user_edits: Optional[Dict] = None
 
+
+class MediaShot(BaseModel):
+    """Media shot from video or photo."""
+    shot_id: str
+    file_id: str
+    shot_type: str  # "video_shot", "photo"
+    start_time: Optional[float] = None  # For videos: start time in seconds
+    end_time: Optional[float] = None  # For videos: end time in seconds
+    duration: Optional[float] = None  # For videos: duration in seconds
+    quality_score: float  # 0.0-1.0
+    has_audio: bool
+    visual_features: Dict = {}  # Scene labels, objects, people, etc.
+    confidence: float  # 0.0-1.0 detection confidence
+
+
+class MediaAnalysis(BaseModel):
+    """Media analysis results."""
+    analysis_id: str
+    project_id: str
+    shots: List[MediaShot]
+    total_shots: int
+    analysis_status: str  # "completed", "partial", "degraded"
+    created_at: datetime
+
+
+class AlignmentCandidate(BaseModel):
+    """Candidate shot for a story segment."""
+    candidate_id: str
+    segment_id: str
+    shot_id: str
+    match_score: float  # 0.0-1.0 overall match confidence
+    text_match_score: float  # Text-visual semantic match
+    time_match_score: Optional[float] = None  # Time-based match
+    location_match_score: Optional[float] = None  # Location-based match
+    reasoning: str  # Why this shot matches this segment
+
+
+class HighlightSelection(BaseModel):
+    """User's highlight selection for a segment."""
+    selection_id: str
+    project_id: str
+    segment_id: str
+    selected_shot_id: str
+    user_confirmed: bool
+    alternatives_available: int
+    confirmed_at: Optional[datetime] = None
 
 class SkeletonConfirmationRequest(BaseModel):
     """User confirmation request for skeleton."""

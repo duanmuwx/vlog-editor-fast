@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vlog-editor-fast"
+version = "0.1.0"
+description = "AI travel vlog editing system - transforms travel stories into 2-4 minute vlogs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "AI Vlog Team", email = "team@vlog-editor.local"}
+]
+
+dependencies = [
+    "fastapi==0.104.1",
+    "uvicorn==0.24.0",
+    "pydantic==2.5.0",
+    "sqlalchemy==2.0.23",
+    "python-dotenv==1.0.0",
+    "pillow==10.1.0",
+    "opencv-python==4.8.1.78",
+    "librosa==0.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.3",
+    "pytest-asyncio==0.21.1",
+    "black==23.12.0",
+    "ruff==0.1.8",
+]
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

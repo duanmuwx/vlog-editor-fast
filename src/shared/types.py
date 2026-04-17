@@ -21,6 +21,10 @@ class ProjectStatus(str, Enum):
     MEDIA_ANALYZED = "media_analyzed"
     MEDIA_ALIGNED = "media_aligned"
     HIGHLIGHTS_CONFIRMED = "highlights_confirmed"
+    EDIT_PLANNED = "edit_planned"
+    NARRATION_GENERATED = "narration_generated"
+    AUDIO_MIXED = "audio_mixed"
+    EXPORTED = "exported"
     RUNNING = "running"
     AWAITING_USER = "awaiting_user"
     COMPLETED = "completed"
@@ -151,3 +155,109 @@ class SkeletonConfirmationRequest(BaseModel):
     """User confirmation request for skeleton."""
     skeleton_id: str
     edits: List[Dict] = []  # List of edit operations
+
+
+# Phase 4: Final Composition & Export
+
+class TimelineClip(BaseModel):
+    """Clip in timeline segment."""
+    clip_id: str
+    shot_id: str
+    start_time: float  # Seconds in timeline
+    end_time: float  # Seconds in timeline
+    transition: str  # "cut", "fade", "dissolve"
+    duration: float  # Calculated as end_time - start_time
+
+
+class TimelineSegment(BaseModel):
+    """Segment in timeline."""
+    segment_id: str  # Reference to StorySegment
+    clips: List[TimelineClip]
+    narration_start: float  # When narration starts
+    narration_end: float  # When narration ends
+    total_duration: float  # Total segment duration
+
+
+class Timeline(BaseModel):
+    """Executable timeline with clips and timing."""
+    timeline_id: str
+    project_id: str
+    version_id: str
+    segments: List[TimelineSegment]
+    total_duration_seconds: float
+    target_duration_seconds: float
+    created_at: datetime
+
+
+class Subtitle(BaseModel):
+    """Subtitle entry."""
+    subtitle_id: str
+    text: str
+    start_time: float  # Seconds
+    end_time: float  # Seconds
+
+
+class TextCard(BaseModel):
+    """Text card for display."""
+    card_id: str
+    text: str
+    duration_seconds: float
+    position: str  # "center", "top", "bottom"
+
+
+class NarrationPack(BaseModel):
+    """Narration pack with TTS audio and subtitles."""
+    narration_id: str
+    project_id: str
+    version_id: str
+    narration_text: str
+    tts_audio_path: str
+    subtitles: List[Subtitle]
+    text_cards: List[TextCard]
+    tts_voice: str
+    created_at: datetime
+
+
+class AudioTrack(BaseModel):
+    """Audio track in mix."""
+    track_id: str
+    track_type: str  # "narration", "ambient", "bgm"
+    file_path: str
+    volume: float  # 0.0-1.0
+    start_time: float
+    end_time: float
+
+
+class AudioMixPack(BaseModel):
+    """Mixed audio pack with all tracks."""
+    audio_mix_id: str
+    project_id: str
+    version_id: str
+    tracks: List[AudioTrack]
+    mixed_audio_path: str
+    total_duration_seconds: float
+    created_at: datetime
+
+
+class ExportBundle(BaseModel):
+    """Final export bundle with all outputs."""
+    export_id: str
+    project_id: str
+    version_id: str
+    video_path: str
+    subtitle_path: str
+    narration_path: str
+    manifest_path: str
+    status: str  # "success", "partial", "failed"
+    created_at: datetime
+
+
+class ArtifactVersion(BaseModel):
+    """Version metadata with dependency tracking."""
+    version_id: str
+    artifact_type: str  # "timeline", "narration", "audio_mix", "export"
+    project_id: str
+    upstream_versions: Dict[str, str] = {}  # Dependencies
+    status: str  # "active", "superseded", "invalidated"
+    created_at: datetime
+    invalidated_at: Optional[datetime] = None

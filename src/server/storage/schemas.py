@@ -182,3 +182,177 @@ class HighlightSelectionRecord(Base):
     confirmed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+# Phase 4: Final Composition & Export
+
+class TimelineRecord(Base):
+    """Timelines table."""
+    __tablename__ = "timelines"
+
+    timeline_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    version_id = Column(String, unique=True, nullable=False)
+    total_duration_seconds = Column(Float, nullable=False)
+    target_duration_seconds = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TimelineSegmentRecord(Base):
+    """Timeline segments table."""
+    __tablename__ = "timeline_segments"
+
+    segment_id = Column(String, primary_key=True)
+    timeline_id = Column(String, ForeignKey("timelines.timeline_id"), nullable=False)
+    story_segment_id = Column(String, ForeignKey("story_segments.segment_id"), nullable=False)
+    narration_start = Column(Float, nullable=False)
+    narration_end = Column(Float, nullable=False)
+    total_duration = Column(Float, nullable=False)
+
+
+class TimelineClipRecord(Base):
+    """Timeline clips table."""
+    __tablename__ = "timeline_clips"
+
+    clip_id = Column(String, primary_key=True)
+    segment_id = Column(String, ForeignKey("timeline_segments.segment_id"), nullable=False)
+    shot_id = Column(String, ForeignKey("media_shots.shot_id"), nullable=False)
+    start_time = Column(Float, nullable=False)
+    end_time = Column(Float, nullable=False)
+    transition = Column(String, nullable=False)  # "cut", "fade", "dissolve"
+
+
+class NarrationRecord(Base):
+    """Narrations table."""
+    __tablename__ = "narrations"
+
+    narration_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    version_id = Column(String, unique=True, nullable=False)
+    narration_text = Column(String, nullable=False)
+    tts_audio_path = Column(String, nullable=False)
+    tts_voice = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SubtitleRecord(Base):
+    """Subtitles table."""
+    __tablename__ = "subtitles"
+
+    subtitle_id = Column(String, primary_key=True)
+    narration_id = Column(String, ForeignKey("narrations.narration_id"), nullable=False)
+    text = Column(String, nullable=False)
+    start_time = Column(Float, nullable=False)
+    end_time = Column(Float, nullable=False)
+
+
+class TextCardRecord(Base):
+    """Text cards table."""
+    __tablename__ = "text_cards"
+
+    card_id = Column(String, primary_key=True)
+    narration_id = Column(String, ForeignKey("narrations.narration_id"), nullable=False)
+    text = Column(String, nullable=False)
+    duration_seconds = Column(Float, nullable=False)
+    position = Column(String, nullable=False)  # "center", "top", "bottom"
+
+
+class AudioMixRecord(Base):
+    """Audio mixes table."""
+    __tablename__ = "audio_mixes"
+
+    audio_mix_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    version_id = Column(String, unique=True, nullable=False)
+    mixed_audio_path = Column(String, nullable=False)
+    total_duration_seconds = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AudioTrackRecord(Base):
+    """Audio tracks table."""
+    __tablename__ = "audio_tracks"
+
+    track_id = Column(String, primary_key=True)
+    audio_mix_id = Column(String, ForeignKey("audio_mixes.audio_mix_id"), nullable=False)
+    track_type = Column(String, nullable=False)  # "narration", "ambient", "bgm"
+    file_path = Column(String, nullable=False)
+    volume = Column(Float, nullable=False)
+    start_time = Column(Float, nullable=False)
+    end_time = Column(Float, nullable=False)
+
+
+class ExportRecord(Base):
+    """Exports table."""
+    __tablename__ = "exports"
+
+    export_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    version_id = Column(String, unique=True, nullable=False)
+    video_path = Column(String, nullable=False)
+    subtitle_path = Column(String, nullable=False)
+    narration_path = Column(String, nullable=False)
+    manifest_path = Column(String, nullable=False)
+    status = Column(String, nullable=False)  # "success", "partial", "failed"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ArtifactVersionRecord(Base):
+    """Artifact versions table."""
+    __tablename__ = "artifact_versions"
+
+    version_id = Column(String, primary_key=True)
+    artifact_type = Column(String, nullable=False)  # "timeline", "narration", "audio_mix", "export"
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    upstream_versions = Column(JSON, nullable=True)  # Dependencies
+    status = Column(String, nullable=False)  # "active", "superseded", "invalidated"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    invalidated_at = Column(DateTime, nullable=True)
+
+
+class RunRecord(Base):
+    """Run records table."""
+    __tablename__ = "run_records"
+
+    run_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    ended_at = Column(DateTime, nullable=True)
+    status = Column(String, nullable=False)
+
+
+class TaskStateRecord(Base):
+    """Task states table."""
+    __tablename__ = "task_states"
+
+    task_id = Column(String, primary_key=True)
+    run_id = Column(String, ForeignKey("run_records.run_id"), nullable=False)
+    stage_name = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+
+
+class DiagnosticRecord(Base):
+    """Diagnostics table."""
+    __tablename__ = "diagnostics"
+
+    diagnostic_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    run_id = Column(String, ForeignKey("run_records.run_id"), nullable=False)
+    issue_type = Column(String, nullable=False)
+    severity = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FallbackEventRecord(Base):
+    """Fallback events table."""
+    __tablename__ = "fallback_events"
+
+    event_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    run_id = Column(String, ForeignKey("run_records.run_id"), nullable=False)
+    reason = Column(String, nullable=False)
+    action = Column(String, nullable=False)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

@@ -13,6 +13,12 @@ from src.server.modules.skeleton_confirmation import SkeletonConfirmation
 from src.server.modules.media_analyzer import MediaAnalyzer
 from src.server.modules.alignment_engine import AlignmentEngine
 from src.server.modules.highlight_confirmation import HighlightConfirmation
+from src.server.modules.edit_planner import EditPlanner
+from src.server.modules.narration_engine import NarrationEngine
+from src.server.modules.audio_composer import AudioComposer
+from src.server.modules.renderer import Renderer
+from src.server.modules.run_orchestrator import RunOrchestrator
+from src.server.modules.diagnostic_reporter import DiagnosticReporter
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -413,3 +419,291 @@ async def get_current_highlights(project_id: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+# Phase 4: Final Composition & Export
+
+@router.post("/{project_id}/edit-plan")
+async def edit_plan(project_id: str):
+    """Generate timeline from confirmed story and highlights."""
+    try:
+        metadata = ProjectManager.get_project_metadata(project_id)
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        timeline = EditPlanner.plan_edit(project_id)
+        ProjectManager.update_project_status(project_id, "edit_planned")
+
+        return {
+            "timeline_id": timeline.timeline_id,
+            "version_id": timeline.version_id,
+            "total_duration_seconds": timeline.total_duration_seconds,
+            "target_duration_seconds": timeline.target_duration_seconds,
+            "segments": [seg.dict() for seg in timeline.segments],
+            "created_at": timeline.created_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/timeline/{version_id}")
+async def get_timeline(project_id: str, version_id: str):
+    """Retrieve timeline details."""
+    try:
+        from src.server.storage.database import get_or_create_db
+        from src.server.storage.schemas import TimelineRecord, TimelineSegmentRecord, TimelineClipRecord
+
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+
+        try:
+            timeline_record = session.query(TimelineRecord).filter_by(
+                version_id=version_id
+            ).first()
+
+            if not timeline_record:
+                raise HTTPException(status_code=404, detail="Timeline not found")
+
+            segments = session.query(TimelineSegmentRecord).filter_by(
+                timeline_id=timeline_record.timeline_id
+            ).all()
+
+            return {
+                "timeline_id": timeline_record.timeline_id,
+                "version_id": timeline_record.version_id,
+                "total_duration_seconds": timeline_record.total_duration_seconds,
+                "target_duration_seconds": timeline_record.target_duration_seconds,
+                "segments_count": len(segments),
+                "created_at": timeline_record.created_at
+            }
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/generate-narration")
+async def generate_narration(project_id: str):
+    """Generate narration, subtitles, and text cards."""
+    try:
+        config = ProjectManager.get_project_config(project_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        from src.server.modules.artifact_store import ArtifactStore
+        timeline_version = ArtifactStore.get_active_version(project_id, "timeline")
+        if not timeline_version:
+            raise HTTPException(status_code=404, detail="No timeline found")
+
+        from src.server.storage.schemas import TimelineRecord
+        from src.server.storage.database import get_or_create_db
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+        try:
+            timeline_record = session.query(TimelineRecord).filter_by(
+                version_id=timeline_version.version_id
+            ).first()
+            timeline_id = timeline_record.timeline_id
+        finally:
+            session.close()
+
+        tts_voice = config.tts_voice or "default"
+        narration = NarrationEngine.generate_narration(project_id, timeline_id, tts_voice)
+        ProjectManager.update_project_status(project_id, "narration_generated")
+
+        return {
+            "narration_id": narration.narration_id,
+            "version_id": narration.version_id,
+            "narration_text": narration.narration_text,
+            "tts_voice": narration.tts_voice,
+            "subtitles_count": len(narration.subtitles),
+            "text_cards_count": len(narration.text_cards),
+            "created_at": narration.created_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/mix-audio")
+async def mix_audio(project_id: str):
+    """Mix narration, ambient sound, and BGM."""
+    try:
+        config = ProjectManager.get_project_config(project_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        from src.server.modules.artifact_store import ArtifactStore
+        timeline_version = ArtifactStore.get_active_version(project_id, "timeline")
+        narration_version = ArtifactStore.get_active_version(project_id, "narration")
+
+        if not timeline_version or not narration_version:
+            raise HTTPException(status_code=404, detail="Missing timeline or narration")
+
+        from src.server.storage.schemas import TimelineRecord, NarrationRecord
+        from src.server.storage.database import get_or_create_db
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+        try:
+            timeline_record = session.query(TimelineRecord).filter_by(
+                version_id=timeline_version.version_id
+            ).first()
+            narration_record = session.query(NarrationRecord).filter_by(
+                version_id=narration_version.version_id
+            ).first()
+            timeline_id = timeline_record.timeline_id
+            narration_id = narration_record.narration_id
+        finally:
+            session.close()
+
+        bgm_asset = config.bgm_asset
+        audio_mix = AudioComposer.compose_audio(project_id, timeline_id, narration_id, bgm_asset)
+        ProjectManager.update_project_status(project_id, "audio_mixed")
+
+        return {
+            "audio_mix_id": audio_mix.audio_mix_id,
+            "version_id": audio_mix.version_id,
+            "total_duration_seconds": audio_mix.total_duration_seconds,
+            "tracks_count": len(audio_mix.tracks),
+            "created_at": audio_mix.created_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/render-export")
+async def render_export(project_id: str):
+    """Render final video and export."""
+    try:
+        config = ProjectManager.get_project_config(project_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        from src.server.modules.artifact_store import ArtifactStore
+        timeline_version = ArtifactStore.get_active_version(project_id, "timeline")
+        audio_mix_version = ArtifactStore.get_active_version(project_id, "audio_mix")
+        narration_version = ArtifactStore.get_active_version(project_id, "narration")
+
+        if not all([timeline_version, audio_mix_version, narration_version]):
+            raise HTTPException(status_code=404, detail="Missing required artifacts")
+
+        from src.server.storage.schemas import TimelineRecord, AudioMixRecord, NarrationRecord
+        from src.server.storage.database import get_or_create_db
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+        try:
+            timeline_record = session.query(TimelineRecord).filter_by(
+                version_id=timeline_version.version_id
+            ).first()
+            audio_mix_record = session.query(AudioMixRecord).filter_by(
+                version_id=audio_mix_version.version_id
+            ).first()
+            narration_record = session.query(NarrationRecord).filter_by(
+                version_id=narration_version.version_id
+            ).first()
+            timeline_id = timeline_record.timeline_id
+            audio_mix_id = audio_mix_record.audio_mix_id
+            narration_id = narration_record.narration_id
+        finally:
+            session.close()
+
+        export_bundle = Renderer.render_export(project_id, timeline_id, audio_mix_id, narration_id)
+        ProjectManager.update_project_status(project_id, "exported")
+
+        return {
+            "export_id": export_bundle.export_id,
+            "version_id": export_bundle.version_id,
+            "video_path": export_bundle.video_path,
+            "subtitle_path": export_bundle.subtitle_path,
+            "narration_path": export_bundle.narration_path,
+            "manifest_path": export_bundle.manifest_path,
+            "status": export_bundle.status,
+            "created_at": export_bundle.created_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/exports")
+async def get_exports(project_id: str):
+    """Retrieve all exports."""
+    try:
+        from src.server.storage.database import get_or_create_db
+        from src.server.storage.schemas import ExportRecord
+
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+
+        try:
+            exports = session.query(ExportRecord).filter_by(
+                project_id=project_id
+            ).order_by(ExportRecord.created_at.desc()).all()
+
+            return {
+                "total_exports": len(exports),
+                "exports": [
+                    {
+                        "export_id": e.export_id,
+                        "version_id": e.version_id,
+                        "video_path": e.video_path,
+                        "status": e.status,
+                        "created_at": e.created_at
+                    }
+                    for e in exports
+                ]
+            }
+        finally:
+            session.close()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/diagnostics/{run_id}")
+async def get_diagnostics(project_id: str, run_id: str):
+    """Retrieve diagnostics for run."""
+    try:
+        diagnostics = DiagnosticReporter.report_diagnostics(project_id, run_id)
+        return diagnostics
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/regenerate/{regen_type}")
+async def regenerate(project_id: str, regen_type: str, request: dict = None):
+    """Regenerate specific component."""
+    try:
+        config = ProjectManager.get_project_config(project_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if regen_type == "narration":
+            tts_voice = config.tts_voice or "default"
+            export_bundle = RunOrchestrator.regenerate_narration(project_id, tts_voice)
+        elif regen_type == "audio":
+            bgm_asset = config.bgm_asset
+            export_bundle = RunOrchestrator.regenerate_audio(project_id, bgm_asset)
+        elif regen_type == "shorter":
+            target_seconds = request.get("target_seconds", 180.0) if request else 180.0
+            export_bundle = RunOrchestrator.regenerate_shorter(project_id, target_seconds)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown regeneration type: {regen_type}")
+
+        return {
+            "export_id": export_bundle.export_id,
+            "version_id": export_bundle.version_id,
+            "video_path": export_bundle.video_path,
+            "status": export_bundle.status,
+            "created_at": export_bundle.created_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

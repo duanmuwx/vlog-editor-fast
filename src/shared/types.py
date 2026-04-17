@@ -16,6 +16,8 @@ class ProjectStatus(str, Enum):
     """Project status states."""
     DRAFT = "draft"
     READY = "ready"
+    STORY_PARSED = "story_parsed"
+    SKELETON_CONFIRMED = "skeleton_confirmed"
     RUNNING = "running"
     AWAITING_USER = "awaiting_user"
     COMPLETED = "completed"
@@ -65,3 +67,38 @@ class AssetIndex(BaseModel):
     indexed_at: datetime
     media_items: List[MediaFileInfo]
     metadata_availability: Dict
+
+
+class StorySegment(BaseModel):
+    """Story segment from narrative parsing."""
+    segment_id: str
+    title: str
+    summary: str
+    start_index: int  # Character index in narrative
+    end_index: int  # Character index in narrative
+    importance: str  # "high", "medium", "low"
+    confidence: float  # 0.0-1.0 parsing confidence
+    keywords: List[str] = []
+    locations: List[str] = []
+    timestamps: List[str] = []
+
+
+class StorySkeleton(BaseModel):
+    """Story skeleton with versioning."""
+    skeleton_id: str
+    project_id: str
+    version: int
+    segments: List[StorySegment]
+    total_segments: int
+    narrative_coverage: float  # 0.0-1.0
+    parsing_confidence: float  # 0.0-1.0
+    status: str  # "draft", "confirmed"
+    created_at: datetime
+    confirmed_at: Optional[datetime] = None
+    user_edits: Optional[Dict] = None
+
+
+class SkeletonConfirmationRequest(BaseModel):
+    """User confirmation request for skeleton."""
+    skeleton_id: str
+    edits: List[Dict] = []  # List of edit operations

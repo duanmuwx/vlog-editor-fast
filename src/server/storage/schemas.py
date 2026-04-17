@@ -76,3 +76,49 @@ class AssetIndexRecord(Base):
     total_duration = Column(Float, default=0.0)
     metadata_availability = Column(JSON, nullable=True)
     indexed_at = Column(DateTime, default=datetime.utcnow)
+
+
+class StorySkeletonRecord(Base):
+    """Story skeletons table."""
+    __tablename__ = "story_skeletons"
+
+    skeleton_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), unique=True, nullable=False)
+    version = Column(Integer, default=1)
+    total_segments = Column(Integer, nullable=False)
+    narrative_coverage = Column(Float, nullable=False)
+    parsing_confidence = Column(Float, nullable=False)
+    status = Column(String, default="draft")  # "draft", "confirmed"
+    user_edits = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    confirmed_at = Column(DateTime, nullable=True)
+
+
+class StorySegmentRecord(Base):
+    """Story segments table."""
+    __tablename__ = "story_segments"
+
+    segment_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    skeleton_id = Column(String, ForeignKey("story_skeletons.skeleton_id"), nullable=False)
+    title = Column(String, nullable=False)
+    summary = Column(String, nullable=False)
+    start_index = Column(Integer, nullable=False)
+    end_index = Column(Integer, nullable=False)
+    importance = Column(String, nullable=False)  # "high", "medium", "low"
+    confidence = Column(Float, nullable=False)
+    keywords = Column(JSON, nullable=True)
+    locations = Column(JSON, nullable=True)
+    timestamps = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SkeletonConfirmationRecord(Base):
+    """Skeleton confirmations table."""
+    __tablename__ = "skeleton_confirmations"
+
+    confirmation_id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id"), nullable=False)
+    skeleton_id = Column(String, ForeignKey("story_skeletons.skeleton_id"), nullable=False)
+    edits = Column(JSON, nullable=False)
+    confirmed_at = Column(DateTime, default=datetime.utcnow)

@@ -3,10 +3,13 @@
 from fastapi import APIRouter, HTTPException
 from typing import Optional
 
-from src.shared.types import ProjectInputContract
+from src.shared.types import ProjectInputContract, SkeletonConfirmationRequest
 from src.server.modules.project_manager import ProjectManager
 from src.server.modules.input_validator import InputValidator
 from src.server.modules.asset_indexer import AssetIndexer
+from src.server.modules.story_parser import StoryParser
+from src.server.modules.story_skeleton import StorySkeleton
+from src.server.modules.skeleton_confirmation import SkeletonConfirmation
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -115,6 +118,116 @@ async def get_assets(project_id: str):
             }
         finally:
             session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/story/parse")
+async def parse_story(project_id: str):
+    """Parse travel narrative into story segments."""
+    try:
+        config = ProjectManager.get_project_config(project_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        skeleton = StoryParser.parse_story(project_id, config.travel_note)
+        ProjectManager.update_project_status(project_id, "story_parsed")
+
+        return {
+            "skeleton_id": skeleton.skeleton_id,
+            "project_id": skeleton.project_id,
+            "version": skeleton.version,
+            "total_segments": skeleton.total_segments,
+            "narrative_coverage": skeleton.narrative_coverage,
+            "parsing_confidence": skeleton.parsing_confidence,
+            "status": skeleton.status,
+            "segments": [seg.dict() for seg in skeleton.segments],
+            "created_at": skeleton.created_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/skeleton/{skeleton_id}")
+async def get_skeleton(project_id: str, skeleton_id: str):
+    """Retrieve story skeleton."""
+    try:
+        skeleton = StorySkeleton.get_skeleton(project_id, skeleton_id)
+        if not skeleton:
+            raise HTTPException(status_code=404, detail="Skeleton not found")
+
+        return {
+            "skeleton_id": skeleton.skeleton_id,
+            "project_id": skeleton.project_id,
+            "version": skeleton.version,
+            "total_segments": skeleton.total_segments,
+            "narrative_coverage": skeleton.narrative_coverage,
+            "parsing_confidence": skeleton.parsing_confidence,
+            "status": skeleton.status,
+            "segments": [seg.dict() for seg in skeleton.segments],
+            "created_at": skeleton.created_at,
+            "confirmed_at": skeleton.confirmed_at,
+            "user_edits": skeleton.user_edits
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{project_id}/skeleton/{skeleton_id}/confirm")
+async def confirm_skeleton(project_id: str, skeleton_id: str, request: SkeletonConfirmationRequest):
+    """Confirm skeleton with user edits."""
+    try:
+        confirmed_skeleton = SkeletonConfirmation.confirm_skeleton(
+            project_id, skeleton_id, request.edits
+        )
+        ProjectManager.update_project_status(project_id, "skeleton_confirmed")
+
+        return {
+            "skeleton_id": confirmed_skeleton.skeleton_id,
+            "project_id": confirmed_skeleton.project_id,
+            "version": confirmed_skeleton.version,
+            "total_segments": confirmed_skeleton.total_segments,
+            "narrative_coverage": confirmed_skeleton.narrative_coverage,
+            "parsing_confidence": confirmed_skeleton.parsing_confidence,
+            "status": confirmed_skeleton.status,
+            "segments": [seg.dict() for seg in confirmed_skeleton.segments],
+            "created_at": confirmed_skeleton.created_at,
+            "confirmed_at": confirmed_skeleton.confirmed_at,
+            "user_edits": confirmed_skeleton.user_edits
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/skeleton/current")
+async def get_current_skeleton(project_id: str):
+    """Get latest confirmed skeleton."""
+    try:
+        skeleton = StorySkeleton.get_current_skeleton(project_id)
+        if not skeleton:
+            raise HTTPException(status_code=404, detail="No skeleton found for project")
+
+        return {
+            "skeleton_id": skeleton.skeleton_id,
+            "project_id": skeleton.project_id,
+            "version": skeleton.version,
+            "total_segments": skeleton.total_segments,
+            "narrative_coverage": skeleton.narrative_coverage,
+            "parsing_confidence": skeleton.parsing_confidence,
+            "status": skeleton.status,
+            "segments": [seg.dict() for seg in skeleton.segments],
+            "created_at": skeleton.created_at,
+            "confirmed_at": skeleton.confirmed_at,
+            "user_edits": skeleton.user_edits
+        }
     except HTTPException:
         raise
     except Exception as e:

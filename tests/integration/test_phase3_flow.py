@@ -8,11 +8,12 @@ from pathlib import Path
 from src.shared.types import ProjectInputContract
 from src.server.modules.project_manager import ProjectManager
 from src.server.modules.story_parser import StoryParser
-from src.server.modules.story_skeleton import StorySkeleton
+from src.server.modules.story_skeleton import StorySkeletonManager
 from src.server.modules.skeleton_confirmation import SkeletonConfirmation
 from src.server.modules.media_analyzer import MediaAnalyzer
 from src.server.modules.alignment_engine import AlignmentEngine
 from src.server.modules.highlight_confirmation import HighlightConfirmation
+from tests.unit.conftest import add_media_shots_to_project
 
 
 @pytest.fixture
@@ -64,6 +65,9 @@ def test_complete_phase3_flow(temp_project_media):
 
     confirmed_skeleton = SkeletonConfirmation.confirm_skeleton(project_id, skeleton.skeleton_id, [])
     assert confirmed_skeleton.status == "confirmed"
+
+    # Add media shots to database
+    add_media_shots_to_project(project_id, 23)
 
     analysis = MediaAnalyzer.analyze_media(project_id)
     assert analysis.total_shots >= 0
@@ -130,6 +134,9 @@ def test_phase3_alignment_with_skeleton(temp_project_media):
     skeleton = StoryParser.parse_story(project_id, config.travel_note)
     confirmed = SkeletonConfirmation.confirm_skeleton(project_id, skeleton.skeleton_id, [])
 
+    # Add media shots to database
+    add_media_shots_to_project(project_id, 23)
+
     MediaAnalyzer.analyze_media(project_id)
 
     candidates = AlignmentEngine.align_media(project_id, skeleton.skeleton_id)
@@ -157,6 +164,9 @@ def test_phase3_highlight_confirmation_validation(temp_project_media):
 
     skeleton = StoryParser.parse_story(project_id, config.travel_note)
     confirmed = SkeletonConfirmation.confirm_skeleton(project_id, skeleton.skeleton_id, [])
+
+    # Add media shots to database
+    add_media_shots_to_project(project_id, 23)
 
     MediaAnalyzer.analyze_media(project_id)
     candidates = AlignmentEngine.align_media(project_id, skeleton.skeleton_id)

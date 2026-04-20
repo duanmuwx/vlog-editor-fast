@@ -14,57 +14,20 @@ from src.server.modules.alignment_engine import AlignmentEngine
 from src.server.modules.highlight_confirmation import HighlightConfirmation
 from src.server.modules.edit_planner import EditPlanner
 from src.server.modules.narration_engine import NarrationEngine
+from tests.unit.conftest import create_test_project_with_highlights
 
 
 @pytest.fixture
 def temp_project_with_timeline():
     """Create temporary project with timeline."""
-    temp_dir = tempfile.mkdtemp()
-
-    video_files = []
-    for i in range(2):
-        video_path = os.path.join(temp_dir, f"video_{i}.mp4")
-        Path(video_path).write_bytes(b"dummy video content")
-        video_files.append(video_path)
-
-    photo_files = []
-    for i in range(10):
-        photo_path = os.path.join(temp_dir, f"photo_{i}.jpg")
-        Path(photo_path).write_bytes(b"dummy photo content")
-        photo_files.append(photo_path)
-
-    input_contract = ProjectInputContract(
-        project_name="Narration Engine Test",
-        travel_note="这是第一段故事。" * 15 + "这是第二段故事。" * 15 + "这是第三段故事。" * 15,
-        media_files=video_files + photo_files,
-        tts_voice="default"
+    project_id, skeleton_id, confirmed, temp_dir = create_test_project_with_highlights(
+        "Narration Engine Test",
+        "这是第一段故事。" * 15 + "这是第二段故事。" * 15 + "这是第三段故事。" * 15
     )
-
-    project_id = ProjectManager.create_project(input_contract)
-    config = ProjectManager.get_project_config(project_id)
-
-    skeleton = StoryParser.parse_story(project_id, config.travel_note)
-    confirmed = SkeletonConfirmation.confirm_skeleton(project_id, skeleton.skeleton_id, [])
-
-    MediaAnalyzer.analyze_media(project_id)
-    candidates = AlignmentEngine.align_media(project_id, skeleton.skeleton_id)
-
-    selections = []
-    for segment in confirmed.segments:
-        segment_candidates = [c for c in candidates if c.segment_id == segment.segment_id]
-        if segment_candidates:
-            selections.append({
-                "segment_id": segment.segment_id,
-                "shot_id": segment_candidates[0].shot_id,
-                "user_confirmed": True
-            })
-
-    if selections:
-        HighlightConfirmation.confirm_highlights(project_id, skeleton.skeleton_id, selections)
 
     timeline = EditPlanner.plan_edit(project_id)
 
-    yield project_id, timeline.timeline_id, config.tts_voice, temp_dir
+    yield project_id, timeline.timeline_id, "default", temp_dir
 
     import shutil
     shutil.rmtree(temp_dir, ignore_errors=True)

@@ -1,0 +1,29 @@
+[run]
+source = src
+omit =
+    */tests/*
+    */site-packages/*
+    */__pycache__/*
+    */venv/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    @abc.abstractmethod
+    if 0:
+    if False:
+    if not TYPE_CHECKING:
+    @overload
+
+precision = 2
+show_missing = True
+skip_covered = False
+
+[html]
+directory = htmlcov

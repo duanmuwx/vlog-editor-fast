@@ -209,6 +209,16 @@ class ArtifactStore:
         session = db.get_session()
 
         try:
+            # Mark previous active version as superseded
+            previous_active = session.query(ArtifactVersionRecord).filter(
+                ArtifactVersionRecord.project_id == project_id,
+                ArtifactVersionRecord.artifact_type == artifact_type,
+                ArtifactVersionRecord.status == "active"
+            ).first()
+
+            if previous_active:
+                previous_active.status = "superseded"
+
             record = ArtifactVersionRecord(
                 version_id=version_id,
                 artifact_type=artifact_type,

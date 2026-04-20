@@ -11,7 +11,7 @@ from src.server.storage.schemas import (
     StorySegmentRecord,
     SkeletonConfirmationRecord,
 )
-from src.server.modules.story_skeleton import StorySkeleton as SkeletonManager
+from src.server.modules.story_skeleton import StorySkeletonManager
 
 
 class SkeletonConfirmation:
@@ -39,7 +39,7 @@ class SkeletonConfirmation:
         6. Create skeleton_confirmations record
         7. Return confirmed skeleton
         """
-        skeleton = SkeletonManager.get_skeleton(project_id, skeleton_id)
+        skeleton = StorySkeletonManager.get_skeleton(project_id, skeleton_id)
         if not skeleton:
             raise ValueError(f"Skeleton {skeleton_id} not found")
 
@@ -208,6 +208,8 @@ class SkeletonConfirmation:
         project_id: str, skeleton: StorySkeleton, edits: List[Dict]
     ) -> None:
         """Persist confirmed skeleton and confirmation record to database."""
+        from src.server.modules.project_manager import ProjectManager
+
         db = get_or_create_db(project_id)
         session = db.get_session()
 
@@ -270,5 +272,8 @@ class SkeletonConfirmation:
             session.add(confirmation_record)
 
             session.commit()
+
+            # Update project status
+            ProjectManager.update_project_status(project_id, "skeleton_confirmed")
         finally:
             session.close()

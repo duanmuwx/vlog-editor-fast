@@ -4,18 +4,18 @@ import uuid
 from typing import List, Optional
 from datetime import datetime
 
-from src.shared.types import StorySegment, StorySkeleton
+from src.shared.types import StorySegment, StorySkeleton as StorySkeletonModel
 from src.server.storage.database import get_or_create_db
 from src.server.storage.schemas import StorySkeletonRecord, StorySegmentRecord
 
 
-class StorySkeleton:
+class StorySkeletonManager:
     """Generate and manage story skeleton versions."""
 
     @staticmethod
     def generate_skeleton(
         project_id: str, story_segments: List[StorySegment]
-    ) -> StorySkeleton:
+    ) -> StorySkeletonModel:
         """
         Generate story skeleton from parsed segments.
 
@@ -45,7 +45,7 @@ class StorySkeleton:
             else 0.0
         )
 
-        skeleton = StorySkeleton(
+        skeleton = StorySkeletonModel(
             skeleton_id=skeleton_id,
             project_id=project_id,
             version=1,
@@ -59,12 +59,12 @@ class StorySkeleton:
             user_edits=None,
         )
 
-        StorySkeleton._persist_skeleton(project_id, skeleton)
+        StorySkeletonManager._persist_skeleton(project_id, skeleton)
 
         return skeleton
 
     @staticmethod
-    def get_skeleton(project_id: str, skeleton_id: str) -> Optional[StorySkeleton]:
+    def get_skeleton(project_id: str, skeleton_id: str) -> Optional[StorySkeletonModel]:
         """Retrieve skeleton and all segments from DB."""
         db = get_or_create_db(project_id)
         session = db.get_session()
@@ -97,7 +97,7 @@ class StorySkeleton:
                 for sr in segment_records
             ]
 
-            skeleton = StorySkeleton(
+            skeleton = StorySkeletonModel(
                 skeleton_id=skeleton_record.skeleton_id,
                 project_id=skeleton_record.project_id,
                 version=skeleton_record.version,
@@ -116,7 +116,7 @@ class StorySkeleton:
             session.close()
 
     @staticmethod
-    def get_current_skeleton(project_id: str) -> Optional[StorySkeleton]:
+    def get_current_skeleton(project_id: str) -> Optional[StorySkeletonModel]:
         """Get latest confirmed skeleton, or draft if none confirmed."""
         db = get_or_create_db(project_id)
         session = db.get_session()
@@ -127,21 +127,21 @@ class StorySkeleton:
             ).order_by(StorySkeletonRecord.confirmed_at.desc()).first()
 
             if confirmed:
-                return StorySkeleton.get_skeleton(project_id, confirmed.skeleton_id)
+                return StorySkeletonManager.get_skeleton(project_id, confirmed.skeleton_id)
 
             draft = session.query(StorySkeletonRecord).filter_by(
                 project_id=project_id, status="draft"
             ).order_by(StorySkeletonRecord.created_at.desc()).first()
 
             if draft:
-                return StorySkeleton.get_skeleton(project_id, draft.skeleton_id)
+                return StorySkeletonManager.get_skeleton(project_id, draft.skeleton_id)
 
             return None
         finally:
             session.close()
 
     @staticmethod
-    def _persist_skeleton(project_id: str, skeleton: StorySkeleton) -> None:
+    def _persist_skeleton(project_id: str, skeleton: StorySkeletonModel) -> None:
         """Persist skeleton and segments to database."""
         db = get_or_create_db(project_id)
         session = db.get_session()

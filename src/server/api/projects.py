@@ -9,7 +9,7 @@ from src.server.modules.project_manager import ProjectManager
 from src.server.modules.input_validator import InputValidator
 from src.server.modules.asset_indexer import AssetIndexer
 from src.server.modules.story_parser import StoryParser
-from src.server.modules.story_skeleton import StorySkeleton
+from src.server.modules.story_skeleton import StorySkeletonManager
 from src.server.modules.skeleton_confirmation import SkeletonConfirmation
 from src.server.modules.media_analyzer import MediaAnalyzer
 from src.server.modules.alignment_engine import AlignmentEngine

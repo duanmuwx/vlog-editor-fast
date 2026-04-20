@@ -16,6 +16,7 @@ from src.server.modules.edit_planner import EditPlanner
 from src.server.modules.narration_engine import NarrationEngine
 from src.server.modules.audio_composer import AudioComposer
 from src.server.modules.renderer import Renderer
+from tests.unit.conftest import create_test_project_with_highlights
 
 
 @pytest.fixture
@@ -23,54 +24,17 @@ def temp_project_with_audio():
     """Create temporary project with audio mix."""
     temp_dir = tempfile.mkdtemp()
 
-    video_files = []
-    for i in range(2):
-        video_path = os.path.join(temp_dir, f"video_{i}.mp4")
-        Path(video_path).write_bytes(b"dummy video content")
-        video_files.append(video_path)
-
-    photo_files = []
-    for i in range(10):
-        photo_path = os.path.join(temp_dir, f"photo_{i}.jpg")
-        Path(photo_path).write_bytes(b"dummy photo content")
-        photo_files.append(photo_path)
-
     # Create BGM file
     bgm_path = os.path.join(temp_dir, "bgm.mp3")
     Path(bgm_path).write_bytes(b"dummy bgm")
 
-    input_contract = ProjectInputContract(
-        project_name="Renderer Test",
-        travel_note="这是第一段故事。" * 15 + "这是第二段故事。" * 15 + "这是第三段故事。" * 15,
-        media_files=video_files + photo_files,
-        bgm_asset=bgm_path,
-        tts_voice="default"
+    project_id, skeleton_id, confirmed, _ = create_test_project_with_highlights(
+        "Renderer Test",
+        "这是第一段故事。" * 15 + "这是第二段故事。" * 15 + "这是第三段故事。" * 15
     )
 
-    project_id = ProjectManager.create_project(input_contract)
-    config = ProjectManager.get_project_config(project_id)
-
-    skeleton = StoryParser.parse_story(project_id, config.travel_note)
-    confirmed = SkeletonConfirmation.confirm_skeleton(project_id, skeleton.skeleton_id, [])
-
-    MediaAnalyzer.analyze_media(project_id)
-    candidates = AlignmentEngine.align_media(project_id, skeleton.skeleton_id)
-
-    selections = []
-    for segment in confirmed.segments:
-        segment_candidates = [c for c in candidates if c.segment_id == segment.segment_id]
-        if segment_candidates:
-            selections.append({
-                "segment_id": segment.segment_id,
-                "shot_id": segment_candidates[0].shot_id,
-                "user_confirmed": True
-            })
-
-    if selections:
-        HighlightConfirmation.confirm_highlights(project_id, skeleton.skeleton_id, selections)
-
     timeline = EditPlanner.plan_edit(project_id)
-    narration = NarrationEngine.generate_narration(project_id, timeline.timeline_id, config.tts_voice)
+    narration = NarrationEngine.generate_narration(project_id, timeline.timeline_id, "default")
     audio_mix = AudioComposer.compose_audio(project_id, timeline.timeline_id, narration.narration_id, bgm_path)
 
     yield project_id, timeline.timeline_id, audio_mix.audio_mix_id, narration.narration_id, temp_dir

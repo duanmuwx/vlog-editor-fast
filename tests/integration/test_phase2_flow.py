@@ -8,7 +8,7 @@ from pathlib import Path
 from src.shared.types import ProjectInputContract
 from src.server.modules.project_manager import ProjectManager
 from src.server.modules.story_parser import StoryParser
-from src.server.modules.story_skeleton import StorySkeleton
+from src.server.modules.story_skeleton import StorySkeletonManager
 from src.server.modules.skeleton_confirmation import SkeletonConfirmation
 
 
@@ -72,7 +72,7 @@ def test_complete_phase2_flow(temp_project_media):
     assert skeleton.status == "draft"
 
     # Step 3: Retrieve skeleton
-    retrieved_skeleton = StorySkeleton.get_skeleton(project_id, skeleton.skeleton_id)
+    retrieved_skeleton = StorySkeletonManager.get_skeleton(project_id, skeleton.skeleton_id)
     assert retrieved_skeleton is not None
     assert retrieved_skeleton.skeleton_id == skeleton.skeleton_id
     assert len(retrieved_skeleton.segments) == skeleton.total_segments
@@ -89,7 +89,7 @@ def test_complete_phase2_flow(temp_project_media):
     assert metadata.status == "skeleton_confirmed"
 
     # Step 6: Get current skeleton
-    current = StorySkeleton.get_current_skeleton(project_id)
+    current = StorySkeletonManager.get_current_skeleton(project_id)
     assert current is not None
     assert current.status == "confirmed"
     assert current.skeleton_id == skeleton.skeleton_id
@@ -179,6 +179,6 @@ def test_phase2_flow_multiple_confirmations(temp_project_media):
     assert confirmed1.status == "confirmed"
 
     # Retrieve and verify
-    current = StorySkeleton.get_current_skeleton(project_id)
+    current = StorySkeletonManager.get_current_skeleton(project_id)
     assert current.status == "confirmed"
     assert current.skeleton_id == skeleton.skeleton_id

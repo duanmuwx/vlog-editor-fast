@@ -4,13 +4,15 @@ import pytest
 import tempfile
 import os
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
-from src.shared.types import ProjectInputContract, StorySegment, MediaShot
+from src.shared.types import ProjectInputContract, StorySegment, MediaShot, MediaAnalysis, MediaFileInfo, FileType
 from src.server.modules.project_manager import ProjectManager
 from src.server.modules.story_parser import StoryParser
 from src.server.modules.skeleton_confirmation import SkeletonConfirmation
 from src.server.modules.media_analyzer import MediaAnalyzer
 from src.server.modules.alignment_engine import AlignmentEngine
+from datetime import datetime
 
 
 @pytest.fixture
@@ -42,7 +44,32 @@ def temp_project_with_alignment():
     skeleton = StoryParser.parse_story(project_id, config.travel_note)
     confirmed = SkeletonConfirmation.confirm_skeleton(project_id, skeleton.skeleton_id, [])
 
-    MediaAnalyzer.analyze_media(project_id)
+    # Insert test media shots directly into database
+    from src.server.storage.database import get_or_create_db
+    from src.server.storage.schemas import MediaShotRecord
+    db = get_or_create_db(project_id)
+    session = db.get_session()
+
+    try:
+        for i in range(12):
+            shot = MediaShotRecord(
+                shot_id=f"shot_{i}",
+                file_id=f"file_{i}",
+                project_id=project_id,
+                shot_type="photo" if i < 10 else "video_shot",
+                start_time=None if i < 10 else float(i),
+                end_time=None if i < 10 else float(i + 1),
+                duration=None if i < 10 else 1.0,
+                quality_score=0.8,
+                has_audio=False,
+                visual_features={"scene_type": "outdoor", "dominant_color": "blue"},
+                confidence=0.9,
+                created_at=datetime.utcnow(),
+            )
+            session.add(shot)
+        session.commit()
+    finally:
+        session.close()
 
     yield project_id, skeleton.skeleton_id, confirmed, temp_dir
 

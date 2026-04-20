@@ -1,4 +1,4 @@
-"""Unit tests for EditPlanner."""
+"""Shared fixtures for unit tests."""
 
 import pytest
 import tempfile
@@ -10,17 +10,14 @@ from src.shared.types import ProjectInputContract
 from src.server.modules.project_manager import ProjectManager
 from src.server.modules.story_parser import StoryParser
 from src.server.modules.skeleton_confirmation import SkeletonConfirmation
-from src.server.modules.media_analyzer import MediaAnalyzer
 from src.server.modules.alignment_engine import AlignmentEngine
 from src.server.modules.highlight_confirmation import HighlightConfirmation
-from src.server.modules.edit_planner import EditPlanner
 from src.server.storage.database import get_or_create_db
 from src.server.storage.schemas import MediaShotRecord
 
 
-@pytest.fixture
-def temp_project_with_highlights():
-    """Create temporary project with story, media, and highlights."""
+def create_test_project_with_highlights(project_name: str, travel_note: str):
+    """Helper to create a test project with highlights."""
     temp_dir = tempfile.mkdtemp()
 
     video_files = []
@@ -36,8 +33,8 @@ def temp_project_with_highlights():
         photo_files.append(photo_path)
 
     input_contract = ProjectInputContract(
-        project_name="Edit Planner Test",
-        travel_note="这是第一段故事。" * 15 + "这是第二段故事。" * 15 + "这是第三段故事。" * 15,
+        project_name=project_name,
+        travel_note=travel_note,
         media_files=video_files + photo_files,
     )
 
@@ -87,55 +84,31 @@ def temp_project_with_highlights():
     if selections:
         HighlightConfirmation.confirm_highlights(project_id, skeleton.skeleton_id, selections)
 
-    yield project_id, skeleton.skeleton_id, confirmed, temp_dir
-
-    import shutil
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    return project_id, skeleton.skeleton_id, confirmed, temp_dir
 
 
-def test_plan_edit_complete(temp_project_with_highlights):
-    """Test complete edit planning."""
-    project_id, skeleton_id, skeleton, _ = temp_project_with_highlights
+def add_media_shots_to_project(project_id: str, num_shots: int = 12):
+    """Helper to add media shots to an existing project."""
+    db = get_or_create_db(project_id)
+    session = db.get_session()
 
-    timeline = EditPlanner.plan_edit(project_id)
-
-    assert timeline.timeline_id is not None
-    assert timeline.project_id == project_id
-    assert timeline.total_duration_seconds > 0
-    assert len(timeline.segments) > 0
-
-
-def test_timeline_duration_within_range(temp_project_with_highlights):
-    """Test timeline duration is within 2-4 minutes."""
-    project_id, skeleton_id, skeleton, _ = temp_project_with_highlights
-
-    timeline = EditPlanner.plan_edit(project_id)
-
-    # Should be between 2-4 minutes (120-240 seconds)
-    assert timeline.total_duration_seconds >= 0  # May be compressed
-
-
-def test_timeline_has_clips(temp_project_with_highlights):
-    """Test timeline has clips for each segment."""
-    project_id, skeleton_id, skeleton, _ = temp_project_with_highlights
-
-    timeline = EditPlanner.plan_edit(project_id)
-
-    for segment in timeline.segments:
-        assert len(segment.clips) > 0
-        for clip in segment.clips:
-            assert clip.clip_id is not None
-            assert clip.shot_id is not None
-            assert clip.transition in ["cut", "fade", "dissolve"]
-
-
-def test_timeline_segment_timing(temp_project_with_highlights):
-    """Test timeline segment timing is correct."""
-    project_id, skeleton_id, skeleton, _ = temp_project_with_highlights
-
-    timeline = EditPlanner.plan_edit(project_id)
-
-    for segment in timeline.segments:
-        assert segment.narration_start >= 0
-        assert segment.narration_end > segment.narration_start
-        assert segment.total_duration > 0
+    try:
+        for i in range(num_shots):
+            shot = MediaShotRecord(
+                shot_id=f"shot_{i}",
+                file_id=f"file_{i}",
+                project_id=project_id,
+                shot_type="photo" if i < 10 else "video_shot",
+                start_time=None if i < 10 else float(i),
+                end_time=None if i < 10 else float(i + 1),
+                duration=None if i < 10 else 1.0,
+                quality_score=0.8,
+                has_audio=False,
+                visual_features={"scene_type": "outdoor", "dominant_color": "blue"},
+                confidence=0.9,
+                created_at=datetime.utcnow(),
+            )
+            session.add(shot)
+        session.commit()
+    finally:
+        session.close()

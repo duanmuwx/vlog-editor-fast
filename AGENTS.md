@@ -1,51 +1,24 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repository is currently documentation-first. The main project artifacts live at the repo root:
-
-- `AI旅行Vlog剪辑系统PRD重构版.md`: primary product requirements document and the most detailed source of truth
-- `AI旅行Vlog剪辑系统方案.md`: solution and architecture proposal
-- `AI旅行Vlog开源工具调研.md`: tool research and dependency evaluation
-- `.claude/`: local assistant workflow notes; change only when updating contributor tooling
-
-Keep new planning, architecture, or research documents in Markdown at the root unless a clear subdirectory is introduced for a new document set.
+Core application code lives in `src/`. The backend API is in `src/server`, with `api/` for FastAPI routes, `modules/` for pipeline stages such as parsing, alignment, narration, and rendering, `models/` for domain models, and `storage/` for SQLite persistence. Shared Pydantic types live in `src/shared`. Tests are organized by scope in `tests/unit`, `tests/integration`, `tests/e2e`, `tests/performance`, and `tests/stress`. Reference material and design docs live under `docs/`; generated benchmark output belongs in `performance_results/`.
 
 ## Build, Test, and Development Commands
-There is no application build or automated test pipeline checked in yet. Use lightweight validation commands before opening a PR:
-
-- `git diff --check` — catches trailing whitespace and malformed patches
-- `rg -n "TODO|待确认|TBD" *.md` — finds unresolved placeholders
-- `sed -n '1,80p' AI旅行Vlog剪辑系统PRD重构版.md` — spot-check document structure and heading flow
-
-Preview Markdown in your editor before submitting to verify tables, lists, and heading hierarchy.
+Set up an editable environment with:
+```bash
+python -m venv venv && source venv/bin/activate
+python -m pip install -e '.[dev]'
+```
+Run the API locally with `uvicorn src.server.main:app --reload --host 0.0.0.0 --port 8000`. Run all tests with `pytest`. Scope runs as needed: `pytest tests/unit -v`, `pytest tests/integration -v`, or `pytest tests/e2e/test_standard_workflow.py -v`. Format with `black src tests` and lint with `ruff check src tests`.
 
 ## Coding Style & Naming Conventions
-Use concise, professional Markdown. Prefer:
-
-- ATX headings (`#`, `##`, `###`) with a clear hierarchy
-- short paragraphs and scannable bullet lists
-- backticks for module names, interfaces, commands, and file names
-- consistent terminology across documents; reuse established names such as `Project Manager`, `Media Analyzer`, and `EditPlan`
-
-Preserve the repository’s existing naming pattern: descriptive Chinese document titles for product docs, with English identifiers only for technical concepts.
+Target Python 3.10+ and follow PEP 8 with 4-space indentation. `black` and `ruff` are the formatting and linting standards; both are configured for a 100-character line length in `pyproject.toml`. Use `snake_case` for modules, functions, variables, and test files; use `PascalCase` for classes and Pydantic models; keep route handlers and module methods small and typed. Prefer short module docstrings and explicit imports such as `from src.server.modules.project_manager import ProjectManager`.
 
 ## Testing Guidelines
-Because this repo is documentation-based, “testing” means review for consistency and completeness:
-
-- verify section numbering and heading depth
-- confirm new terms match existing PRD vocabulary
-- update cross-document references when changing module names, flows, or V1 scope
-- avoid leaving unresolved assumptions without marking them explicitly
+Pytest is the test runner, with `asyncio_mode = auto`. Name tests `test_*.py` and keep them in the matching scope directory. Add unit tests for isolated logic changes, integration tests for API or storage flows, and e2e/performance coverage only when behavior spans phases. There is no formal coverage gate in the repo today, but every feature or bug fix should include the narrowest useful automated test.
 
 ## Commit & Pull Request Guidelines
-Match the current Git history: concise, imperative summaries in sentence case, for example `Refine fallback strategies in PRD`. Do not use noisy multi-topic commits.
+Recent history uses short, imperative subjects such as `Implement Phase 4...`, `Fix test failures...`, and `Reorganize documentation structure...`. Follow that pattern: start with a verb, keep the subject specific, and mention the phase or subsystem when relevant. PRs should include a concise summary, affected paths, test evidence (`pytest ...` output or scope), and screenshots or sample payloads when API behavior or user-facing docs change.
 
-For pull requests:
-
-- explain which document(s) changed and why
-- call out any scope, terminology, or architecture decisions
-- include before/after screenshots only if formatting changed substantially in Markdown preview
-- link related issues, plans, or discussion notes when available
-
-## Agent-Specific Notes
-Make minimal, surgical edits. Prefer updating the existing PRD or proposal files over creating overlapping documents. When adding a new document, state its purpose and relationship to the current PRD in the opening section.
+## Configuration & Workspace Tips
+Keep local secrets in `.env` and avoid committing virtualenv contents, local SQLite databases, or generated benchmark artifacts. Project data is stored outside the repo under `~/.vlog-editor/projects/`, so code changes should not assume checked-in runtime state.

@@ -4,102 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an AI travel vlog editing system—a local tool that transforms travel stories into 2–4 minute, 16:9 horizontal-format vlogs. **Phases 1–5 are fully implemented** with core modules, API, database, and test suite (21 tests, all passing).
-
-**Core principle:** Story-first, multi-modal alignment. The user's travel narrative (游记) is the primary driver; photos, videos, audio, timestamps, and GPS data are evidence that supports the story structure.
-
-**Current Phase:** Phase 1–5 complete. Phase 6 (UI/Frontend) and Phase 7 (Optimization) pending.
-
-## Architecture & Core Concepts
-
-### System Flow
-
-1. **Input**: User provides a travel narrative (text), media files (photos/videos), and optional metadata (EXIF, GPS, timestamps)
-2. **Story Analysis**: LLM parses the narrative into a story structure (scenes, key moments, emotional beats)
-3. **Media Alignment**: Multi-modal matching aligns narrative segments with photos/videos using time, location, visual content, and audio cues
-4. **Highlight Selection**: System identifies candidate "highlight" clips; user confirms or adjusts (single human checkpoint)
-5. **Composition**: Auto-generate structure, transitions, pacing, and timing
-6. **Audio**: Generate AI voiceover (TTS), preserve ambient sound, mix background music
-7. **Rendering**: Export MP4, subtitles, voiceover track, and edit manifest
-
-### Key Design Principles
-
-- **Story-first**: Narrative structure drives editing decisions, not media quality alone
-- **High-confidence automation**: Deduplication, sorting, waste removal, candidate selection, subtitle generation are fully automatic
-- **Single user checkpoint**: Only highlight confirmation requires human input; everything else is automatic
-- **Multi-modal alignment**: Leverage text, visuals, audio, time, and location simultaneously
-- **Graceful degradation**: When metadata is missing (no EXIF, no GPS, no speech), fall back to content-based matching and confidence scoring
-
-### Core Modules (Conceptual)
-
-| Module | Responsibility |
-|--------|---|
-| **Project Manager** | Orchestrates the pipeline, manages task state and recovery |
-| **Story Parser** | Parses narrative into scenes, segments, and emotional beats |
-| **Media Analyzer** | Extracts visual features, speech, metadata from photos/videos |
-| **Alignment Engine** | Matches narrative segments to media using multi-modal signals |
-| **EditPlan Generator** | Produces structure, timing, transitions, and pacing decisions |
-| **Composer** | Assembles final video: cuts, transitions, effects, timing |
-| **Audio Mixer** | Generates voiceover, mixes ambient sound and BGM |
-| **Renderer** | Exports MP4, subtitles, voiceover, and manifest |
-
-## Critical Constraints & Open Questions
-
-### P0 Issues (Must Resolve Before MVP)
-
-1. **Quantified success metrics**: Define acceptable thresholds for processing time, success rate, manual correction rate, user satisfaction
-2. **User correction entry points**: Current design has only one checkpoint (highlight confirmation); need "three-stage light interaction" (story skeleton → highlights → local regeneration)
-3. **Alignment strategy vs. real-world data**: Metadata is often missing; need explicit fallback strategies for no-EXIF, no-GPS, no-speech, short-narrative cases
-4. **Local-first boundary**: Clarify which operations must run locally vs. which can be cloud-optional; define minimum/recommended hardware specs
-5. **Confidence & fallback strategy**: Define how to handle low-confidence matches and when to degrade gracefully
-
-### P1 Issues (Should Resolve for MVP)
-
-- Long-task state management and recovery (checkpoint/resume design)
-- Tension between "story-first" and "remove low-quality media" (preserve sentimental value)
-- Local re-generation capability (e.g., rewrite voiceover only, remix audio only, restructure only)
-- Input validation and quality requirements (media count, duration, narrative length, file formats)
-
-### P2 Issues (Post-MVP)
-
-- Diagnostic output and logging for debugging
-- Version boundaries and decision principles (what V1 does vs. doesn't do)
-
-## Document Map
-
-### Product Documentation
-
-| Document | Purpose | Audience |
-|----------|---------|----------|
-| [PRD](docs/product/PRD.md) | Primary PRD; product requirements, success metrics, version boundaries | Product, engineering, design |
-| [Architecture](docs/product/architecture.md) | Solution architecture and design principles | Engineering, design |
-| [Tools Research](docs/product/tools_research.md) | Dependency evaluation and tool research | Engineering |
-| [Data Schema](docs/product/data_schema.md) | Data dictionary and schema definitions | Engineering |
-| [Interaction Design](docs/product/interaction_design.md) | UI/UX design and interaction flows | Design, product |
-| [Test Cases](docs/product/test_cases.md) | Acceptance test cases and scenarios | QA, product |
-
-### Implementation Plans
-
-| Phase | Plan Document | Scope |
-|-------|---------------|-------|
-| **Overview** | [Implementation Phases Overview](plans/implementation-phases-overview.md) | Complete system design, all 5 phases, data models, API design, validation criteria |
-| **Phase 1** | [Phase 1: Infrastructure & Input Processing](plans/phase1-implementation.md) | Project management, input validation, media asset indexing |
-| **Phase 2** | [Phase 2: Story Analysis & Confirmation](plans/phase2-story-analysis-confirmation.md) | Story parsing, skeleton generation, user confirmation workflow |
-| **Phase 3** | [Phase 3: Media Analysis & Alignment](plans/phase3-media-analysis-alignment.md) | Media analysis, narrative-media alignment, highlight confirmation |
-| **Phase 4** | [Phase 4: Final Composition & Export](plans/phase4-final-composition-export.md) | Edit planning, narration/TTS, audio mixing, video rendering |
-| **Phase 5** | [Phase 5: Version Management & Recovery](plans/phase5-version-management-recovery.md) | Run orchestration, artifact versioning, local regeneration, diagnostics |
-| **Phase 6** | [Phase 6: Testing & Optimization](plans/phase6-testing-optimization.md) | Unit/integration/E2E testing, performance optimization, documentation |
-
-### Repository Guidelines
-
-| Document | Purpose | Audience |
-|----------|---------|----------|
-| `AGENTS.md` | Repository guidelines for documentation and commits | All contributors |
+**Vlog Editor Fast** is an AI travel vlog editing system that transforms travel stories into 2-4 minute vlogs. The project is a Python FastAPI backend with a modular architecture supporting multiple processing phases: input validation, story parsing, media analysis, alignment, editing, and rendering.
 
 ## Development Commands
 
-### Setup & Installation
-
+### Setup
 ```bash
 # Create and activate virtual environment
 python3 -m venv venv
@@ -107,155 +16,194 @@ source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Copy environment template
-cp .env.example .env
 ```
 
 ### Testing
-
 ```bash
 # Run all tests
-pytest tests/ -v
+python3 -m pytest tests/ -v
 
 # Run unit tests only
-pytest tests/unit/ -v
+python3 -m pytest tests/unit/ -v
 
 # Run integration tests only
-pytest tests/integration/ -v
+python3 -m pytest tests/integration/ -v
 
 # Run specific test file
-pytest tests/unit/test_project_manager.py -v
+python3 -m pytest tests/unit/test_project_manager.py -v
 
 # Run with coverage
-pytest tests/ --cov=src --cov-report=html
+python3 -m pytest tests/ --cov=src --cov-report=html
+
+# Run specific test by name
+python3 -m pytest tests/unit/test_project_manager.py::TestProjectManager::test_create_project -v
 ```
 
 ### Code Quality
-
 ```bash
-# Format code with Black
+# Format code with Black (100 char line length)
 black src/ tests/
 
 # Lint with Ruff
 ruff check src/ tests/
 
-# Fix linting issues
-ruff check --fix src/ tests/
+# Check for linting issues without fixing
+ruff check src/ tests/ --no-fix
 ```
 
 ### Running the Server
-
 ```bash
-# Start FastAPI development server (auto-reload)
+# Start FastAPI development server
 uvicorn src.server.main:app --reload --host 0.0.0.0 --port 8000
 
-# API available at http://localhost:8000
-# Docs at http://localhost:8000/docs
+# API documentation available at http://localhost:8000/docs
 ```
 
-## Implemented Modules
+## Architecture Overview
 
-| Module | Status | Responsibility |
-|--------|--------|---|
-| **ProjectManager** | ✅ | Project creation, workspace management |
-| **InputValidator** | ✅ | Input validation, risk identification |
-| **AssetIndexer** | ✅ | Media indexing, metadata extraction |
-| **StoryParser** | ✅ | Narrative parsing into scenes/segments |
-| **StorySkeleton** | ✅ | Story structure representation |
-| **SkeletonConfirmation** | ✅ | User confirmation UI logic |
-| **MediaAnalyzer** | ✅ | Visual/audio feature extraction |
-| **AlignmentEngine** | ✅ | Multi-modal narrative-media matching |
-| **EditPlanner** | ✅ | Structure, timing, transitions generation |
-| **HighlightConfirmation** | ✅ | Highlight selection confirmation |
-| **Composer** | ✅ | Video assembly and effects |
-| **AudioComposer** | ✅ | Voiceover, ambient sound, BGM mixing |
-| **NarrationEngine** | ✅ | TTS voiceover generation |
-| **Renderer** | ✅ | MP4 export, subtitle generation |
-| **RunOrchestrator** | ✅ | Pipeline orchestration, state management |
-| **ArtifactStore** | ✅ | Version management, recovery |
-| **DiagnosticReporter** | ✅ | Logging, diagnostics, debugging |
+### Directory Structure
+```
+src/
+├── server/                    # Backend service
+│   ├── main.py               # FastAPI app initialization
+│   ├── api/                  # API route handlers
+│   ├── models/               # Pydantic data models
+│   ├── storage/              # Database layer (SQLAlchemy)
+│   └── modules/              # Core processing modules
+├── shared/                   # Shared types and contracts
+└── client/                   # Frontend (not implemented)
 
-## Database
+tests/
+├── unit/                     # Unit tests for individual modules
+└── integration/              # End-to-end workflow tests
+```
 
-SQLite database per project at: `~/.vlog-editor/projects/{project_id}/project.db`
+### Core Modules (src/server/modules/)
 
-Key tables: `projects`, `project_configs`, `media_files`, `validation_reports`, `asset_indexes`, `story_skeletons`, `edit_plans`, `artifacts`
+The system is organized as a pipeline of processing stages:
 
-## Three-Stage User Interaction Model
+1. **ProjectManager** (`project_manager.py`) - Creates projects and manages workspace initialization
+2. **InputValidator** (`input_validator.py`) - Validates input contracts and generates validation reports
+3. **AssetIndexer** (`asset_indexer.py`) - Indexes media files and extracts metadata
+4. **StoryParser** (`story_parser.py`) - Parses travel narrative into story segments (uses Kimi LLM with heuristic fallback)
+5. **MediaAnalyzer** (`media_analyzer.py`) - Analyzes media assets for visual/audio characteristics
+6. **AlignmentEngine** (`alignment_engine.py`) - Aligns story segments with media assets
+7. **HighlightConfirmation** (`highlight_confirmation.py`) - Identifies and confirms highlight moments
+8. **EditPlanner** (`edit_planner.py`) - Plans edit sequences and transitions
+9. **NarrationEngine** (`narration_engine.py`) - Generates narration from story segments
+10. **AudioComposer** (`audio_composer.py`) - Composes audio tracks (narration + BGM)
+11. **Renderer** (`renderer.py`) - Renders final video output
+12. **RunOrchestrator** (`run_orchestrator.py`) - Orchestrates the complete pipeline
+13. **StorySkeleton** (`story_skeleton.py`) - Manages story skeleton data structure
+14. **SkeletonConfirmation** (`skeleton_confirmation.py`) - Handles user confirmation of story skeletons
+15. **ArtifactStore** (`artifact_store.py`) - Manages intermediate artifacts and versioning
+16. **DiagnosticReporter** (`diagnostic_reporter.py`) - Generates diagnostic reports
 
-1. **Story Skeleton Confirmation** - User reviews and adjusts parsed narrative structure
-2. **Highlight Confirmation** - User confirms/adjusts candidate highlight clips
-3. **Local Regeneration** - User can regenerate specific components (voiceover, audio mix, structure) without full re-processing
+### Data Models (src/server/models/)
 
-## Quick Reference
+- **project.py** - ProjectConfig, ProjectMetadata
+- **media.py** - Media file models
+- **validation.py** - Validation report models
 
-### When Adding or Modifying Content
+### Database Layer (src/server/storage/)
 
-- **Terminology**: Use established names (`Project Manager`, `Media Analyzer`, `EditPlan`, `Story Parser`, etc.) consistently across all documents
-- **Cross-references**: Update links when module names or flow steps change
-- **Scope clarity**: Always mark whether a feature is V1, V2, or post-MVP
-- **Fallback strategies**: When describing a core algorithm, include the degradation path for missing data
+- **database.py** - SQLite connection management, project-specific DB paths
+- **schemas.py** - SQLAlchemy ORM models
+- Project databases stored at: `~/.vlog-editor/projects/{project_id}/project.db`
 
-### Before Opening a PR
+### API Routes (src/server/api/)
 
-- Run `git diff --check` to catch trailing whitespace
-- Search for unresolved placeholders: `rg -n "TODO|待确认|TBD" *.md`
-- Verify document structure: `sed -n '1,80p' AI旅行Vlog剪辑系统PRD重构版.md`
-- Preview Markdown in your editor to check tables, lists, and heading hierarchy
+- `POST /api/projects/create` - Create new project
+- `GET /api/projects/{project_id}` - Get project info
+- `POST /api/projects/{project_id}/validate` - Validate input
+- `GET /api/projects/{project_id}/assets` - Get asset index
+- `GET /health` - Health check
 
-### Planning & Implementation
+## Key Design Patterns
 
-- Use `/init` to scaffold a new CLAUDE.md or update this one
-- Use plan mode (`EnterPlanMode`) for multi-step implementation tasks
-- Save plans to `plans/` directory via the PostToolUse hook in `.claude/settings.json`
-- Keep implementation plans focused on the specific task; avoid over-designing for hypothetical future requirements
+### Module Pattern
+Each module follows a consistent pattern:
+- Static methods for main operations
+- Validation before processing
+- Database persistence of results
+- Error handling with fallbacks (e.g., StoryParser uses Kimi LLM with heuristic fallback)
 
-## Key Decisions & Rationale
+### Data Flow
+1. Input validation → 2. Asset indexing → 3. Story parsing → 4. Media analysis → 5. Alignment → 6. Highlight confirmation → 7. Edit planning → 8. Narration → 9. Audio composition → 10. Rendering
 
-- **Documentation-first approach**: The system is complex and multi-disciplinary; written specifications prevent misalignment before code is written
-- **Single checkpoint design**: Reduces user friction; high-confidence automation handles the rest
-- **Story-driven architecture**: Distinguishes this from generic video editors; narrative structure is the organizing principle
-- **Local-first with optional cloud**: Respects user privacy and offline use; cloud services are optional enhancements, not required
+### Database Strategy
+- SQLite for local storage
+- Project-isolated databases (one DB per project)
+- SQLAlchemy ORM for schema management
+- Schemas defined in `storage/schemas.py`
 
-## Implementation Status
+## Code Style & Conventions
 
-**Completed (Phases 1–5):**
-- ✅ Infrastructure & input processing (Phase 1)
-- ✅ Story analysis & confirmation (Phase 2)
-- ✅ Media analysis & alignment (Phase 3)
-- ✅ Final composition & export (Phase 4)
-- ✅ Version management & recovery (Phase 5)
+- **Formatting**: Black with 100 character line length
+- **Linting**: Ruff
+- **Python Version**: 3.10+
+- **Type Hints**: Use Pydantic models for API contracts
+- **Async**: FastAPI uses async/await; pytest-asyncio handles async tests
+- **Comments**: Minimal; use docstrings for module/class/function documentation
 
-**Next Steps (Phases 6–7):**
-1. Frontend UI implementation (Phase 6) - Web interface for three-stage interaction
-2. Performance optimization & profiling (Phase 7)
-3. Real-world testing with travel media samples
-4. User feedback integration and iteration
-5. Documentation and deployment guides
+## Testing Strategy
 
-## Development Workflow
+- **Unit Tests**: Test individual modules in isolation
+- **Integration Tests**: Test end-to-end workflows
+- **Test Files**: Located in `tests/unit/` and `tests/integration/` with `test_` prefix
+- **Fixtures**: Use pytest fixtures for common setup (database, mock data)
+- **Async Tests**: Use `pytest-asyncio` for async test functions
 
-1. **Before starting work**: Check `plans/` directory for existing implementation plans
-2. **During implementation**: Use `EnterPlanMode` for multi-step tasks; save plans to `plans/`
-3. **Testing**: Run `pytest tests/ -v` before committing
-4. **Code quality**: Run `black` and `ruff` before committing
-5. **Committing**: Use descriptive messages; reference phase/module in commit
-6. **Documentation**: Update relevant docs in `docs/product/` and `docs/developer_guide/`
+## Dependencies
 
-## Key Files & Locations
+Key dependencies:
+- **FastAPI** (0.104.1) - Web framework
+- **SQLAlchemy** (2.0.23) - ORM
+- **Pydantic** (2.5.0) - Data validation
+- **OpenCV** (4.8.1.78) - Video/image processing
+- **Librosa** (0.10.0) - Audio processing
+- **Pillow** (10.1.0) - Image manipulation
+- **Pytest** (7.4.3) - Testing framework
 
-| File/Directory | Purpose |
-|---|---|
-| `src/server/main.py` | FastAPI application entry point |
-| `src/server/modules/` | Core module implementations |
-| `src/server/storage/` | Database layer (SQLite) |
-| `src/shared/types.py` | Shared type definitions |
-| `tests/unit/` | Unit tests (18 tests) |
-| `tests/integration/` | Integration tests (3 tests) |
-| `docs/product/` | Product documentation (PRD, architecture, etc.) |
-| `docs/testing/` | Test reports and verification |
-| `plans/` | Implementation plans and design docs |
+## Environment Variables
+
+See `.env.example` for configuration:
+- `KIMI_API_KEY` - API key for Kimi LLM (optional; story parser falls back to heuristics)
+- Database paths are auto-generated per project
+
+## Common Tasks
+
+### Adding a New Module
+1. Create file in `src/server/modules/`
+2. Follow existing module pattern (static methods, validation, DB persistence)
+3. Add corresponding tests in `tests/unit/test_<module_name>.py`
+4. Update `RunOrchestrator` if part of main pipeline
+
+### Adding a New API Endpoint
+1. Create route handler in `src/server/api/`
+2. Use Pydantic models for request/response validation
+3. Add integration tests in `tests/integration/`
+
+### Debugging
+- Use `print()` or logging for quick debugging
+- Run single test with `-v` flag for detailed output
+- Check database at `~/.vlog-editor/projects/{project_id}/project.db` for persisted state
+
+## Recent Changes
+
+The project has completed Phases 1-6:
+- Phase 1: Infrastructure & Input Processing
+- Phase 2: Story Parsing & Skeleton Management
+- Phase 3: Media Analysis & Alignment
+- Phase 4: Final Composition & Export
+- Phase 5: Version Management & Recovery
+- Phase 6: Testing & Optimization
+
+See git history and `docs/` directory for detailed phase documentation.
+
+## Notes for Future Work
+
+- Client frontend not yet implemented
+- Kimi LLM integration is optional with heuristic fallback
+- Performance profiling results available in `performance_results/` directory
+- Comprehensive test documentation in `docs/testing/`

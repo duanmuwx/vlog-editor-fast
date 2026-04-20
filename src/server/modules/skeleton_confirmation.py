@@ -1,7 +1,7 @@
 """Skeleton Confirmation module - handles user confirmation and edits."""
 
 import uuid
-from typing import List, Dict, Tuple, Optional
+from typing import Dict, List, Tuple
 from datetime import datetime
 
 from src.shared.types import StorySegment, StorySkeleton
@@ -112,7 +112,7 @@ class SkeletonConfirmation:
         """Apply all edit operations to segments."""
         current_segments = list(segments)
 
-        for edit in edits:
+        for edit in SkeletonConfirmation._normalize_edits(edits):
             operation = edit.get("operation")
             segment_ids = edit.get("segment_ids", [])
 
@@ -134,6 +134,17 @@ class SkeletonConfirmation:
                 )
 
         return current_segments
+
+    @staticmethod
+    def _normalize_edits(edits: List[Dict]) -> List[Dict]:
+        """Apply reorder edits before structural edits for stable results."""
+        operation_priority = {
+            "reorder": 0,
+            "merge": 1,
+            "delete": 2,
+            "mark": 3,
+        }
+        return sorted(edits, key=lambda edit: operation_priority.get(edit.get("operation"), 99))
 
     @staticmethod
     def _apply_merge(segments: List[StorySegment], segment_ids: List[str]) -> List[StorySegment]:

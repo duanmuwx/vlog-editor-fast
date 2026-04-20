@@ -2,8 +2,10 @@
 
 import os
 from pathlib import Path
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
+
 from .schemas import Base
 
 
@@ -29,11 +31,33 @@ class Database:
         self.engine.dispose()
 
 
+def get_app_data_dir(create: bool = True) -> Path:
+    """Get the application data directory."""
+    base_dir = Path(os.getenv("APP_DATA_DIR", "~/.vlog-editor")).expanduser()
+    if create:
+        base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir
+
+
+def get_projects_root_dir(create: bool = True) -> Path:
+    """Get the root directory for all projects."""
+    base_dir = get_app_data_dir(create=create) / "projects"
+    if create:
+        base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir
+
+
+def get_project_dir(project_id: str, create: bool = True) -> Path:
+    """Get the directory for a specific project."""
+    base_dir = get_projects_root_dir(create=create) / project_id
+    if create:
+        base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir
+
+
 def get_project_db_path(project_id: str) -> str:
     """Get project database path."""
-    base_dir = Path.home() / ".vlog-editor" / "projects" / project_id
-    base_dir.mkdir(parents=True, exist_ok=True)
-    return str(base_dir / "project.db")
+    return str(get_project_dir(project_id) / "project.db")
 
 
 def get_or_create_db(project_id: str) -> Database:

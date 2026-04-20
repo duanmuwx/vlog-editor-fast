@@ -1,8 +1,9 @@
 """Project API routes."""
 
-from fastapi import APIRouter, HTTPException
-from typing import Optional, List
 from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, HTTPException, Response
 
 from src.shared.types import ProjectInputContract, SkeletonConfirmationRequest
 from src.server.modules.project_manager import ProjectManager
@@ -22,6 +23,31 @@ from src.server.modules.run_orchestrator import RunOrchestrator
 from src.server.modules.diagnostic_reporter import DiagnosticReporter
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+
+def _parse_resolution(resolution: Optional[str]) -> Optional[List[int]]:
+    """Convert database resolution strings to JSON-friendly arrays."""
+    if not resolution:
+        return None
+
+    try:
+        width, height = resolution.lower().split("x", maxsplit=1)
+        return [int(width), int(height)]
+    except (AttributeError, ValueError):
+        return None
+
+
+@router.get("")
+async def list_projects():
+    """List all projects."""
+    try:
+        projects = ProjectManager.list_projects()
+        return {
+            "total_projects": len(projects),
+            "projects": [project.dict() for project in projects],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/create")
@@ -72,23 +98,28 @@ async def get_project(project_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.delete("/{project_id}", status_code=204)
+async def delete_project(project_id: str):
+    """Delete a project and its workspace."""
+    try:
+        deleted = ProjectManager.delete_project(project_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        return Response(status_code=204)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/{project_id}/validate")
 async def validate_project(project_id: str):
     """Validate project input."""
     try:
-        config = ProjectManager.get_project_config(project_id)
-        if not config:
+        input_contract = ProjectManager.get_project_input_contract(project_id)
+        if not input_contract:
             raise HTTPException(status_code=404, detail="Project not found")
-
-        # Reconstruct input contract
-        input_contract = ProjectInputContract(
-            project_name="",  # Not stored, would need to retrieve from metadata
-            travel_note=config.travel_note,
-            media_files=[],  # Would need to retrieve from database
-            bgm_asset=config.bgm_asset,
-            tts_voice=config.tts_voice,
-            metadata_pack=config.metadata_pack
-        )
 
         validation_report = InputValidator.validate(project_id, input_contract)
 
@@ -104,7 +135,7 @@ async def get_assets(project_id: str):
     """Get asset index."""
     try:
         from src.server.storage.database import get_or_create_db
-        from src.server.storage.schemas import AssetIndexRecord
+        from src.server.storage.schemas import AssetIndexRecord, MediaFileRecord
 
         db = get_or_create_db(project_id)
         session = db.get_session()
@@ -117,12 +148,30 @@ async def get_assets(project_id: str):
             if not index_record:
                 raise HTTPException(status_code=404, detail="Asset index not found")
 
+            media_items = session.query(MediaFileRecord).filter(
+                MediaFileRecord.project_id == project_id
+            ).order_by(MediaFileRecord.indexed_at.asc(), MediaFileRecord.file_path.asc()).all()
+
             return {
                 "index_id": index_record.index_id,
                 "project_id": index_record.project_id,
                 "total_videos": index_record.total_videos,
                 "total_photos": index_record.total_photos,
                 "total_duration": index_record.total_duration,
+                "media_items": [
+                    {
+                        "file_id": item.file_id,
+                        "file_path": item.file_path,
+                        "file_type": item.file_type,
+                        "file_size": item.file_size,
+                        "duration": item.duration,
+                        "resolution": _parse_resolution(item.resolution),
+                        "creation_time": item.creation_time,
+                        "has_audio": item.has_audio,
+                        "exif_data": item.exif_data,
+                    }
+                    for item in media_items
+                ],
                 "metadata_availability": index_record.metadata_availability,
                 "indexed_at": index_record.indexed_at
             }
@@ -166,7 +215,7 @@ async def parse_story(project_id: str):
 async def get_skeleton(project_id: str, skeleton_id: str):
     """Retrieve story skeleton."""
     try:
-        skeleton = StorySkeleton.get_skeleton(project_id, skeleton_id)
+        skeleton = StorySkeletonManager.get_skeleton(project_id, skeleton_id)
         if not skeleton:
             raise HTTPException(status_code=404, detail="Skeleton not found")
 
@@ -221,7 +270,7 @@ async def confirm_skeleton(project_id: str, skeleton_id: str, request: SkeletonC
 async def get_current_skeleton(project_id: str):
     """Get latest confirmed skeleton."""
     try:
-        skeleton = StorySkeleton.get_current_skeleton(project_id)
+        skeleton = StorySkeletonManager.get_current_skeleton(project_id)
         if not skeleton:
             raise HTTPException(status_code=404, detail="No skeleton found for project")
 
@@ -321,7 +370,7 @@ async def get_media_analysis(project_id: str):
 async def align_media(project_id: str):
     """Align story segments to media."""
     try:
-        skeleton = StorySkeleton.get_current_skeleton(project_id)
+        skeleton = StorySkeletonManager.get_current_skeleton(project_id)
         if not skeleton:
             raise HTTPException(status_code=404, detail="No confirmed skeleton found")
 
@@ -385,7 +434,7 @@ async def get_alignment_candidates(project_id: str, segment_id: str):
 async def confirm_highlights(project_id: str, request: dict):
     """Confirm highlight selections."""
     try:
-        skeleton = StorySkeleton.get_current_skeleton(project_id)
+        skeleton = StorySkeletonManager.get_current_skeleton(project_id)
         if not skeleton:
             raise HTTPException(status_code=404, detail="No confirmed skeleton found")
 
@@ -453,7 +502,7 @@ async def get_timeline(project_id: str, version_id: str):
     """Retrieve timeline details."""
     try:
         from src.server.storage.database import get_or_create_db
-        from src.server.storage.schemas import TimelineRecord, TimelineSegmentRecord, TimelineClipRecord
+        from src.server.storage.schemas import TimelineRecord, TimelineSegmentRecord
 
         db = get_or_create_db(project_id)
         session = db.get_session()

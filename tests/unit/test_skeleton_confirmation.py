@@ -1,10 +1,8 @@
 """Unit tests for SkeletonConfirmation."""
 
 import pytest
-import tempfile
-from datetime import datetime
 
-from src.shared.types import ProjectInputContract, StorySegment
+from src.shared.types import ProjectInputContract
 from src.server.modules.project_manager import ProjectManager
 from src.server.modules.story_parser import StoryParser
 from src.server.modules.story_skeleton import StorySkeletonManager
@@ -12,8 +10,10 @@ from src.server.modules.skeleton_confirmation import SkeletonConfirmation
 
 
 @pytest.fixture
-def temp_project_with_skeleton():
+def temp_project_with_skeleton(tmp_path, monkeypatch):
     """Create temporary project with parsed skeleton."""
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / ".vlog-editor"))
+
     input_contract = ProjectInputContract(
         project_name="Test Project",
         travel_note="这是第一段故事。" * 10 + "这是第二段故事。" * 10 + "这是第三段故事。" * 10 + "这是第四段故事。" * 10,
@@ -25,10 +25,7 @@ def temp_project_with_skeleton():
 
     skeleton = StoryParser.parse_story(project_id, config.travel_note)
 
-    yield project_id, skeleton
-
-    import shutil
-    shutil.rmtree(tempfile.gettempdir(), ignore_errors=True)
+    return project_id, skeleton
 
 
 def test_confirm_skeleton_no_edits(temp_project_with_skeleton):
@@ -111,6 +108,28 @@ def test_confirm_skeleton_with_reorder(temp_project_with_skeleton):
     assert [seg.segment_id for seg in confirmed.segments] == new_order
 
 
+def test_confirm_skeleton_with_reorder_and_delete(temp_project_with_skeleton):
+    """Test mixed reorder and delete edits preserve visible order."""
+    project_id, skeleton = temp_project_with_skeleton
+
+    if len(skeleton.segments) <= 3:
+        pytest.skip("Need more than 3 segments to test mixed edits")
+
+    reordered_ids = [seg.segment_id for seg in reversed(skeleton.segments)]
+    deleted_segment_id = reordered_ids[-1]
+
+    edits = [
+        {"operation": "reorder", "segment_ids": reordered_ids},
+        {"operation": "delete", "segment_ids": [deleted_segment_id]},
+    ]
+
+    confirmed = SkeletonConfirmation.confirm_skeleton(project_id, skeleton.skeleton_id, edits)
+
+    assert confirmed.status == "confirmed"
+    assert confirmed.total_segments == skeleton.total_segments - 1
+    assert [seg.segment_id for seg in confirmed.segments] == reordered_ids[:-1]
+
+
 def test_confirm_skeleton_invalid_operation(temp_project_with_skeleton):
     """Test confirming skeleton with invalid operation."""
     project_id, skeleton = temp_project_with_skeleton
@@ -148,7 +167,7 @@ def test_confirm_skeleton_too_few_segments(temp_project_with_skeleton):
     if len(skeleton.segments) <= 3:
         pytest.skip("Need more than 3 segments to test minimum constraint")
 
-    segment_ids_to_delete = [seg.segment_id for seg in skeleton.segments[3:]]
+    segment_ids_to_delete = [seg.segment_id for seg in skeleton.segments[2:]]
 
     edits = [
         {
@@ -167,7 +186,7 @@ def test_confirm_skeleton_persists_to_db(temp_project_with_skeleton):
 
     confirmed = SkeletonConfirmation.confirm_skeleton(project_id, skeleton.skeleton_id, [])
 
-    retrieved = StorySkeleton.get_skeleton(project_id, skeleton.skeleton_id)
+    retrieved = StorySkeletonManager.get_skeleton(project_id, skeleton.skeleton_id)
 
     assert retrieved is not None
     assert retrieved.status == "confirmed"

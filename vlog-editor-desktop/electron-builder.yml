@@ -1,0 +1,13 @@
+appId: com.openai.vlog-editor-fast
+productName: Vlog Editor Fast
+files:
+  - dist/**
+  - dist-electron/**
+directories:
+  output: release
+mac:
+  target:
+    - dir
+linux:
+  target:
+    - dir

@@ -1,14 +1,19 @@
 """Project Manager module."""
 
+import shutil
 import uuid
 from datetime import datetime
-from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from src.shared.types import ProjectInputContract
 from src.server.models.project import ProjectConfig, ProjectMetadata
-from src.server.storage.database import get_or_create_db
-from src.server.storage.schemas import ProjectRecord, ProjectConfigRecord
+from src.server.storage.database import Database, get_or_create_db, get_project_dir, get_projects_root_dir
+from src.server.storage.schemas import (
+    AssetIndexRecord,
+    MediaFileRecord,
+    ProjectConfigRecord,
+    ProjectRecord,
+)
 
 
 class ProjectManager:
@@ -101,6 +106,93 @@ class ProjectManager:
             )
         finally:
             session.close()
+
+    @staticmethod
+    def list_projects() -> List[ProjectMetadata]:
+        """List all known projects."""
+        projects_root = get_projects_root_dir(create=True)
+        project_metadata: List[ProjectMetadata] = []
+
+        for project_dir in projects_root.iterdir():
+            if not project_dir.is_dir():
+                continue
+
+            db_path = project_dir / "project.db"
+            if not db_path.exists():
+                continue
+
+            db = Database(str(db_path))
+            session = db.get_session()
+
+            try:
+                project = session.query(ProjectRecord).first()
+                if not project:
+                    continue
+
+                asset_index = session.query(AssetIndexRecord).filter(
+                    AssetIndexRecord.project_id == project.project_id
+                ).first()
+
+                project_metadata.append(
+                    ProjectMetadata(
+                        project_id=project.project_id,
+                        project_name=project.project_name,
+                        status=project.status,
+                        created_at=project.created_at,
+                        updated_at=project.updated_at,
+                        total_videos=asset_index.total_videos if asset_index else 0,
+                        total_photos=asset_index.total_photos if asset_index else 0,
+                        total_duration=asset_index.total_duration if asset_index else 0.0,
+                    )
+                )
+            except Exception:
+                continue
+            finally:
+                session.close()
+                db.close()
+
+        return sorted(project_metadata, key=lambda item: item.updated_at, reverse=True)
+
+    @staticmethod
+    def get_project_input_contract(project_id: str) -> Optional[ProjectInputContract]:
+        """Reconstruct the original project input contract from persisted data."""
+        metadata = ProjectManager.get_project_metadata(project_id)
+        config = ProjectManager.get_project_config(project_id)
+        if not metadata or not config:
+            return None
+
+        db = get_or_create_db(project_id)
+        session = db.get_session()
+
+        try:
+            media_files = [
+                record.file_path
+                for record in session.query(MediaFileRecord)
+                .filter(MediaFileRecord.project_id == project_id)
+                .order_by(MediaFileRecord.indexed_at.asc(), MediaFileRecord.file_path.asc())
+                .all()
+            ]
+
+            return ProjectInputContract(
+                project_name=metadata.project_name,
+                travel_note=config.travel_note,
+                media_files=media_files,
+                bgm_asset=config.bgm_asset,
+                tts_voice=config.tts_voice,
+                metadata_pack=config.metadata_pack,
+            )
+        finally:
+            session.close()
+
+    @staticmethod
+    def delete_project(project_id: str) -> bool:
+        """Delete project workspace and database."""
+        project_dir = get_project_dir(project_id, create=False)
+        if not project_dir.exists():
+            return False
+
+        shutil.rmtree(project_dir, ignore_errors=False)
+        return True
 
     @staticmethod
     def update_project_status(project_id: str, status: str) -> None:

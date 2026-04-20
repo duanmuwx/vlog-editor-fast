@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "dist-electron/main/main.js",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite",
@@ -11,6 +11,8 @@
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.node.json",
+    "build:backend-runtime:linux": "../scripts/prepare-desktop-backend-runtime.sh linux",
+    "dist:linux": "npm run build && npm run build:backend-runtime:linux && electron-builder --linux dir",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

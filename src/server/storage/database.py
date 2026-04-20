@@ -47,6 +47,14 @@ def get_projects_root_dir(create: bool = True) -> Path:
     return base_dir
 
 
+def get_app_logs_dir(create: bool = True) -> Path:
+    """Get the application log directory."""
+    logs_dir = get_app_data_dir(create=create) / "logs"
+    if create:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+    return logs_dir
+
+
 def get_project_dir(project_id: str, create: bool = True) -> Path:
     """Get the directory for a specific project."""
     base_dir = get_projects_root_dir(create=create) / project_id
@@ -58,6 +66,14 @@ def get_project_dir(project_id: str, create: bool = True) -> Path:
 def get_project_db_path(project_id: str) -> str:
     """Get project database path."""
     return str(get_project_dir(project_id) / "project.db")
+
+
+def get_project_subdir(project_id: str, subdir: str, create: bool = True) -> Path:
+    """Get a subdirectory inside a project workspace."""
+    target_dir = get_project_dir(project_id, create=create) / subdir
+    if create:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
 
 
 def get_or_create_db(project_id: str) -> Database:

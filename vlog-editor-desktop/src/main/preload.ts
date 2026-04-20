@@ -6,8 +6,14 @@ const api = {
   openPath: (targetPath: string): Promise<string> => ipcRenderer.invoke("shell:open-path", targetPath),
   showItemInFolder: (targetPath: string): Promise<void> =>
     ipcRenderer.invoke("shell:show-item-in-folder", targetPath),
-  getBackendStatus: (): Promise<{ healthy: boolean; message?: string; apiBaseUrl: string }> =>
-    ipcRenderer.invoke("backend:get-status"),
+  getBackendStatus: (): Promise<{
+    state: "starting" | "ready" | "error";
+    healthy: boolean;
+    message?: string;
+    apiBaseUrl: string;
+    logPath?: string;
+    details?: string;
+  }> => ipcRenderer.invoke("backend:get-status"),
   getApiBaseUrl: (): Promise<string> => ipcRenderer.invoke("backend:get-api-base-url"),
 };
 

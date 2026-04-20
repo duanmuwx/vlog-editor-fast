@@ -49,3 +49,5 @@ htmlcov/
 vlog-editor-desktop/dist/
 vlog-editor-desktop/dist-electron/
 vlog-editor-desktop/coverage/
+vlog-editor-desktop/release/
+vlog-editor-desktop/backend-runtime/

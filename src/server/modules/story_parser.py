@@ -1,16 +1,19 @@
 """Story Parser module - parses travel narrative into story segments."""
 
-import os
+import logging
 import re
 import json
 import uuid
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict
 from datetime import datetime
 import requests
 
 from src.shared.types import StorySegment, StorySkeleton
+from src.server.config import get_settings
 from src.server.storage.database import get_or_create_db
 from src.server.storage.schemas import StorySkeletonRecord, StorySegmentRecord
+
+logger = logging.getLogger(__name__)
 
 
 class StoryParser:
@@ -32,16 +35,16 @@ class StoryParser:
         4. Create StorySkeleton and persist to DB
         5. Return StorySkeleton
         """
-        kimi_key = os.getenv("KIMI_API_KEY")
+        kimi_key = get_settings().kimi_api_key
 
         if kimi_key:
             try:
                 segments = StoryParser._parse_with_kimi(travel_note, kimi_key)
             except Exception as e:
-                print(f"Kimi parsing failed: {e}, falling back to heuristic parsing")
+                logger.warning("Kimi parsing failed, falling back to heuristic parsing: %s", e)
                 segments = StoryParser._fallback_parse(travel_note)
         else:
-            print("KIMI_API_KEY not configured, using heuristic parsing")
+            logger.info("KIMI_API_KEY not configured, using heuristic parsing")
             segments = StoryParser._fallback_parse(travel_note)
 
         if not segments or len(segments) < StoryParser.MIN_SEGMENTS:
@@ -99,7 +102,9 @@ class StoryParser:
             "temperature": 0.3,
         }
 
-        response = requests.post(StoryParser.KIMI_API_URL, json=payload, headers=headers, timeout=30)
+        response = requests.post(
+            StoryParser.KIMI_API_URL, json=payload, headers=headers, timeout=30
+        )
         response.raise_for_status()
 
         result = response.json()
@@ -234,7 +239,9 @@ class StoryParser:
         total_chars = sum(seg.end_index - seg.start_index for seg in segments)
         narrative_coverage = min(1.0, total_chars / len(travel_note)) if travel_note else 0.0
 
-        avg_confidence = sum(seg.confidence for seg in segments) / len(segments) if segments else 0.0
+        avg_confidence = (
+            sum(seg.confidence for seg in segments) / len(segments) if segments else 0.0
+        )
 
         skeleton = StorySkeleton(
             skeleton_id=skeleton_id,

@@ -4,12 +4,9 @@ import uuid
 import os
 import json
 from datetime import datetime
-from typing import List
-from src.shared.types import ExportBundle, Subtitle, Timeline
-from src.server.storage.database import get_or_create_db
-from src.server.storage.schemas import (
-    ExportRecord, TimelineRecord, AudioMixRecord, NarrationRecord
-)
+from src.shared.types import ExportBundle
+from src.server.storage.database import get_or_create_db, get_project_subdir
+from src.server.storage.schemas import ExportRecord, TimelineRecord, AudioMixRecord, NarrationRecord
 from src.server.modules.artifact_store import ArtifactStore
 
 
@@ -23,10 +20,7 @@ class Renderer:
 
     @staticmethod
     def render_export(
-        project_id: str,
-        timeline_id: str,
-        audio_mix_id: str,
-        narration_id: str
+        project_id: str, timeline_id: str, audio_mix_id: str, narration_id: str
     ) -> ExportBundle:
         """
         Render final video and export.
@@ -45,24 +39,23 @@ class Renderer:
 
         try:
             # Get records
-            timeline_record = session.query(TimelineRecord).filter_by(
-                timeline_id=timeline_id
-            ).first()
+            timeline_record = (
+                session.query(TimelineRecord).filter_by(timeline_id=timeline_id).first()
+            )
 
-            audio_mix_record = session.query(AudioMixRecord).filter_by(
-                audio_mix_id=audio_mix_id
-            ).first()
+            audio_mix_record = (
+                session.query(AudioMixRecord).filter_by(audio_mix_id=audio_mix_id).first()
+            )
 
-            narration_record = session.query(NarrationRecord).filter_by(
-                narration_id=narration_id
-            ).first()
+            narration_record = (
+                session.query(NarrationRecord).filter_by(narration_id=narration_id).first()
+            )
 
             if not all([timeline_record, audio_mix_record, narration_record]):
                 raise ValueError("Missing timeline, audio mix, or narration")
 
             # Create export directory
-            export_dir = os.path.expanduser(f"~/.vlog-editor/projects/{project_id}/exports")
-            os.makedirs(export_dir, exist_ok=True)
+            export_dir = str(get_project_subdir(project_id, "exports"))
 
             # Compose video
             video_path = Renderer._compose_video(project_id, timeline_id, export_dir)
@@ -74,15 +67,11 @@ class Renderer:
 
             # Mux audio and video
             final_video_path = Renderer._mux_audio_video(
-                video_with_subtitles,
-                audio_mix_record.mixed_audio_path,
-                export_dir
+                video_with_subtitles, audio_mix_record.mixed_audio_path, export_dir
             )
 
             # Export SRT subtitles
-            subtitle_path = Renderer._export_srt(
-                project_id, narration_id, export_dir
-            )
+            subtitle_path = Renderer._export_srt(project_id, narration_id, export_dir)
 
             # Export narration MP3
             narration_path = narration_record.tts_audio_path
@@ -100,8 +89,8 @@ class Renderer:
                 upstream_versions={
                     "timeline": timeline_id,
                     "audio_mix": audio_mix_id,
-                    "narration": narration_id
-                }
+                    "narration": narration_id,
+                },
             )
 
             export_bundle = ExportBundle(
@@ -113,7 +102,7 @@ class Renderer:
                 narration_path=narration_path,
                 manifest_path=manifest_path,
                 status="success",
-                created_at=datetime.utcnow()
+                created_at=datetime.utcnow(),
             )
 
             # Persist to database
@@ -125,11 +114,7 @@ class Renderer:
             session.close()
 
     @staticmethod
-    def _compose_video(
-        project_id: str,
-        timeline_id: str,
-        export_dir: str
-    ) -> str:
+    def _compose_video(project_id: str, timeline_id: str, export_dir: str) -> str:
         """
         Compose video from clips and transitions.
 
@@ -139,17 +124,14 @@ class Renderer:
         video_path = os.path.join(export_dir, "composed_video.mp4")
 
         # Create placeholder file
-        with open(video_path, 'wb') as f:
+        with open(video_path, "wb") as f:
             f.write(b"placeholder video")
 
         return video_path
 
     @staticmethod
     def _render_subtitles(
-        project_id: str,
-        narration_id: str,
-        video_path: str,
-        export_dir: str
+        project_id: str, narration_id: str, video_path: str, export_dir: str
     ) -> str:
         """
         Render subtitles onto video.
@@ -161,11 +143,7 @@ class Renderer:
         return video_path
 
     @staticmethod
-    def _mux_audio_video(
-        video_path: str,
-        audio_path: str,
-        export_dir: str
-    ) -> str:
+    def _mux_audio_video(video_path: str, audio_path: str, export_dir: str) -> str:
         """
         Mux audio and video.
 
@@ -175,17 +153,13 @@ class Renderer:
         final_path = os.path.join(export_dir, "final_video.mp4")
 
         # Create placeholder file
-        with open(final_path, 'wb') as f:
+        with open(final_path, "wb") as f:
             f.write(b"placeholder final video")
 
         return final_path
 
     @staticmethod
-    def _export_srt(
-        project_id: str,
-        narration_id: str,
-        export_dir: str
-    ) -> str:
+    def _export_srt(project_id: str, narration_id: str, export_dir: str) -> str:
         """Export subtitles as SRT file."""
         db = get_or_create_db(project_id)
         session = db.get_session()
@@ -193,13 +167,16 @@ class Renderer:
         try:
             from src.server.storage.schemas import SubtitleRecord
 
-            subtitles = session.query(SubtitleRecord).filter_by(
-                narration_id=narration_id
-            ).order_by(SubtitleRecord.start_time).all()
+            subtitles = (
+                session.query(SubtitleRecord)
+                .filter_by(narration_id=narration_id)
+                .order_by(SubtitleRecord.start_time)
+                .all()
+            )
 
             srt_path = os.path.join(export_dir, "subtitles.srt")
 
-            with open(srt_path, 'w', encoding='utf-8') as f:
+            with open(srt_path, "w", encoding="utf-8") as f:
                 for i, subtitle in enumerate(subtitles, 1):
                     start_time = Renderer._format_srt_time(subtitle.start_time)
                     end_time = Renderer._format_srt_time(subtitle.end_time)
@@ -225,10 +202,7 @@ class Renderer:
 
     @staticmethod
     def _generate_manifest(
-        project_id: str,
-        timeline_id: str,
-        video_path: str,
-        export_dir: str
+        project_id: str, timeline_id: str, video_path: str, export_dir: str
     ) -> str:
         """Generate manifest JSON with metadata."""
         db = get_or_create_db(project_id)
@@ -237,25 +211,29 @@ class Renderer:
         try:
             from src.server.storage.schemas import TimelineRecord
 
-            timeline_record = session.query(TimelineRecord).filter_by(
-                timeline_id=timeline_id
-            ).first()
+            timeline_record = (
+                session.query(TimelineRecord).filter_by(timeline_id=timeline_id).first()
+            )
 
             manifest = {
                 "project_id": project_id,
                 "timeline_id": timeline_id,
                 "video_path": video_path,
-                "total_duration_seconds": timeline_record.total_duration_seconds if timeline_record else 0,
-                "target_duration_seconds": timeline_record.target_duration_seconds if timeline_record else 240,
+                "total_duration_seconds": timeline_record.total_duration_seconds
+                if timeline_record
+                else 0,
+                "target_duration_seconds": timeline_record.target_duration_seconds
+                if timeline_record
+                else 240,
                 "video_codec": Renderer.VIDEO_CODEC,
                 "video_resolution": Renderer.VIDEO_RESOLUTION,
                 "video_aspect_ratio": Renderer.VIDEO_ASPECT_RATIO,
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": datetime.utcnow().isoformat(),
             }
 
             manifest_path = os.path.join(export_dir, "manifest.json")
 
-            with open(manifest_path, 'w', encoding='utf-8') as f:
+            with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
 
             return manifest_path
@@ -264,11 +242,7 @@ class Renderer:
             session.close()
 
     @staticmethod
-    def _persist_export(
-        project_id: str,
-        export_bundle: ExportBundle,
-        session
-    ) -> None:
+    def _persist_export(project_id: str, export_bundle: ExportBundle, session) -> None:
         """Persist export to database."""
         export_record = ExportRecord(
             export_id=export_bundle.export_id,
@@ -279,7 +253,7 @@ class Renderer:
             narration_path=export_bundle.narration_path,
             manifest_path=export_bundle.manifest_path,
             status=export_bundle.status,
-            created_at=export_bundle.created_at
+            created_at=export_bundle.created_at,
         )
         session.add(export_record)
         session.commit()

@@ -1,7 +1,10 @@
 export interface BackendStatus {
+  state: "starting" | "ready" | "error";
   healthy: boolean;
   message?: string;
   apiBaseUrl: string;
+  logPath?: string;
+  details?: string;
 }
 
 export interface DesktopBridge {
@@ -36,6 +39,7 @@ const fallbackBridge: DesktopBridge = {
   },
   async getBackendStatus() {
     return {
+      state: "error" as const,
       healthy: false,
       message: "Electron bridge unavailable",
       apiBaseUrl: defaultApiBaseUrl,

@@ -20,21 +20,40 @@ function App(): JSX.Element {
   const currentProjectId = useAppSelector((state) => state.project.currentProjectId);
   const currentProject = useAppSelector((state) => state.project.currentProjectDetail?.metadata);
   const [backendLoading, setBackendLoading] = useState(true);
+  const [backendState, setBackendState] = useState<"starting" | "ready" | "error">("starting");
   const [backendHealthy, setBackendHealthy] = useState(false);
   const [backendMessage, setBackendMessage] = useState("正在检测本地服务…");
+  const [backendLogPath, setBackendLogPath] = useState<string | undefined>();
+  const [backendDetails, setBackendDetails] = useState<string | undefined>();
+  const backendDataDir = backendLogPath?.replace(/\/logs\/backend\.log$/, "");
 
   useEffect(() => {
     let mounted = true;
 
-    void ipc.getBackendStatus().then((status) => {
-      if (!mounted) {
-        return;
-      }
+    void ipc
+      .getBackendStatus()
+      .then((status) => {
+        if (!mounted) {
+          return;
+        }
 
-      setBackendHealthy(status.healthy);
-      setBackendMessage(status.message ?? (status.healthy ? "服务正常" : "服务不可用"));
-      setBackendLoading(false);
-    });
+        setBackendState(status.state);
+        setBackendHealthy(status.healthy);
+        setBackendMessage(status.message ?? (status.healthy ? "服务正常" : "服务不可用"));
+        setBackendLogPath(status.logPath);
+        setBackendDetails(status.details);
+        setBackendLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (!mounted) {
+          return;
+        }
+
+        setBackendState("error");
+        setBackendHealthy(false);
+        setBackendMessage(error instanceof Error ? error.message : "本地服务状态获取失败");
+        setBackendLoading(false);
+      });
 
     return () => {
       mounted = false;
@@ -111,7 +130,9 @@ function App(): JSX.Element {
             <Typography.Title level={4} style={{ margin: 0 }}>
               {currentProject?.project_name ?? "未选择项目"}
             </Typography.Title>
-            <Tag color={backendHealthy ? "success" : "error"}>{backendHealthy ? "后端在线" : "后端异常"}</Tag>
+            <Tag color={backendHealthy ? "success" : backendState === "starting" ? "processing" : "error"}>
+              {backendHealthy ? "后端在线" : backendState === "starting" ? "后端启动中" : "后端异常"}
+            </Tag>
             <Typography.Text type="secondary">{backendMessage}</Typography.Text>
           </Space>
           {!currentProjectId && (
@@ -123,10 +144,31 @@ function App(): JSX.Element {
         <Content className="app-content">
           {!backendHealthy && (
             <Alert
-              type="warning"
+              type={backendState === "starting" ? "info" : "warning"}
               showIcon
-              message="本地服务未就绪"
-              description="你仍然可以查看桌面端界面，但大部分操作会失败。请先启动 FastAPI 后端。"
+              message={backendState === "starting" ? "正在启动本地服务" : "本地服务未就绪"}
+              description={
+                <Space direction="vertical" size={8}>
+                  <Typography.Text>
+                    {backendState === "starting"
+                      ? "桌面端正在等待内置后端完成健康检查。"
+                      : "你仍然可以查看桌面端界面，但大部分操作会失败。请先检查本地后端日志或启动脚本。"}
+                  </Typography.Text>
+                  {backendDetails && <Typography.Text type="secondary">{backendDetails}</Typography.Text>}
+                  <Space wrap>
+                    {backendLogPath && (
+                      <Button size="small" onClick={() => void ipc.showItemInFolder(backendLogPath)}>
+                        打开日志目录
+                      </Button>
+                    )}
+                    {backendDataDir && (
+                      <Button size="small" onClick={() => void ipc.openPath(backendDataDir)}>
+                        打开数据目录
+                      </Button>
+                    )}
+                  </Space>
+                </Space>
+              }
               style={{ marginBottom: 16 }}
             />
           )}

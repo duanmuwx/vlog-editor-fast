@@ -153,6 +153,27 @@ The system uses SQLite for local storage. Each project has its own database at:
 - **Integration Tests**: 3 tests covering end-to-end flows
 - **Total**: 21 tests, all passing
 
+## Documentation
+
+### Product Documentation
+- [PRD](docs/product/PRD.md) - Product Requirements Document
+- [Architecture](docs/product/architecture.md) - System Architecture & Design
+- [Tools Research](docs/product/tools_research.md) - Open Source Tools Evaluation
+- [Data Schema](docs/product/data_schema.md) - Data Dictionary & Schema
+- [Interaction Design](docs/product/interaction_design.md) - UI/UX Design
+- [Test Cases](docs/product/test_cases.md) - Acceptance Test Cases
+
+### Testing Documentation
+- [Phase 6 Report](docs/testing/phase6_report.md) - Detailed Test Report
+- [Phase 6 Summary](docs/testing/phase6_summary.md) - Test Execution Summary
+- [Phase 6 Fixes](docs/testing/phase6_fixes.md) - Test Fixes Summary
+- [Quick Reference](docs/testing/quick_reference.md) - Quick Test Reference
+- [Verification](docs/testing/verification.md) - Fix Verification Report
+
+### User & Developer Guides
+- [User Guide](docs/user_guide/) - User documentation
+- [Developer Guide](docs/developer_guide/) - Developer documentation
+
 ## Next Steps
 
 Phase 2 will implement:

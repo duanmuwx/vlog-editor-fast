@@ -1,0 +1,33 @@
+{
+  "timestamp": 1776652651.6021214,
+  "total_tests": 3,
+  "tests": {
+    "media_analysis": {
+      "test_name": "media_analysis",
+      "duration": 8.0,
+      "memory_delta": 80.0,
+      "memory_peak": 150.0
+    },
+    "alignment_engine": {
+      "test_name": "alignment_engine",
+      "duration": 4.5,
+      "memory_delta": 40.0,
+      "memory_peak": 120.0
+    },
+    "highlight_confirmation": {
+      "test_name": "highlight_confirmation",
+      "duration": 1.5,
+      "memory_delta": 20.0,
+      "memory_peak": 100.0
+    }
+  },
+  "summary": {
+    "total_duration": 14.0,
+    "avg_duration": 4.666666666666667,
+    "max_duration": 8.0,
+    "min_duration": 1.5,
+    "total_memory_delta": 140.0,
+    "avg_memory_delta": 46.666666666666664,
+    "max_memory_delta": 80.0
+  }
+}

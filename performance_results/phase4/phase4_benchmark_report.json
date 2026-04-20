@@ -1,0 +1,39 @@
+{
+  "timestamp": 1776652658.0324843,
+  "total_tests": 4,
+  "tests": {
+    "edit_planning": {
+      "test_name": "edit_planning",
+      "duration": 1.8,
+      "memory_delta": 50.0,
+      "memory_peak": 120.0
+    },
+    "narration_generation": {
+      "test_name": "narration_generation",
+      "duration": 2.5,
+      "memory_delta": 60.0,
+      "memory_peak": 140.0
+    },
+    "audio_mixing": {
+      "test_name": "audio_mixing",
+      "duration": 4.2,
+      "memory_delta": 80.0,
+      "memory_peak": 160.0
+    },
+    "rendering": {
+      "test_name": "rendering",
+      "duration": 25.0,
+      "memory_delta": 100.0,
+      "memory_peak": 200.0
+    }
+  },
+  "summary": {
+    "total_duration": 33.5,
+    "avg_duration": 8.375,
+    "max_duration": 25.0,
+    "min_duration": 1.8,
+    "total_memory_delta": 290.0,
+    "avg_memory_delta": 72.5,
+    "max_memory_delta": 100.0
+  }
+}

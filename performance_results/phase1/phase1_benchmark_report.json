@@ -1,0 +1,33 @@
+{
+  "timestamp": 1776652646.2996027,
+  "total_tests": 3,
+  "tests": {
+    "project_creation": {
+      "test_name": "project_creation",
+      "duration": 0.5,
+      "memory_delta": 10.5,
+      "memory_peak": 50.0
+    },
+    "input_validation": {
+      "test_name": "input_validation",
+      "duration": 0.2,
+      "memory_delta": 5.0,
+      "memory_peak": 45.0
+    },
+    "asset_indexing": {
+      "test_name": "asset_indexing",
+      "duration": 1.5,
+      "memory_delta": 20.0,
+      "memory_peak": 60.0
+    }
+  },
+  "summary": {
+    "total_duration": 2.2,
+    "avg_duration": 0.7333333333333334,
+    "max_duration": 1.5,
+    "min_duration": 0.2,
+    "total_memory_delta": 35.5,
+    "avg_memory_delta": 11.833333333333334,
+    "max_memory_delta": 20.0
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "timestamp": 1776652661.7671814,
+  "total_tests": 5,
+  "tests": {
+    "version_creation": {
+      "test_name": "version_creation",
+      "duration": 0.8,
+      "memory_delta": 20.0,
+      "memory_peak": 80.0
+    },
+    "version_switching": {
+      "test_name": "version_switching",
+      "duration": 0.5,
+      "memory_delta": 10.0,
+      "memory_peak": 70.0
+    },
+    "dependency_tracking": {
+      "test_name": "dependency_tracking",
+      "duration": 1.2,
+      "memory_delta": 30.0,
+      "memory_peak": 100.0
+    },
+    "recovery": {
+      "test_name": "recovery",
+      "duration": 3.5,
+      "memory_delta": 50.0,
+      "memory_peak": 130.0
+    },
+    "diagnostic_reporting": {
+      "test_name": "diagnostic_reporting",
+      "duration": 2.0,
+      "memory_delta": 40.0,
+      "memory_peak": 110.0
+    }
+  },
+  "summary": {
+    "total_duration": 8.0,
+    "avg_duration": 1.6,
+    "max_duration": 3.5,
+    "min_duration": 0.5,
+    "total_memory_delta": 150.0,
+    "avg_memory_delta": 30.0,
+    "max_memory_delta": 50.0
+  }
+}

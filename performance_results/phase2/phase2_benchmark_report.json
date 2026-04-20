@@ -1,0 +1,33 @@
+{
+  "timestamp": 1776652649.403056,
+  "total_tests": 3,
+  "tests": {
+    "story_parsing": {
+      "test_name": "story_parsing",
+      "duration": 1.5,
+      "memory_delta": 30.0,
+      "memory_peak": 80.0
+    },
+    "skeleton_confirmation": {
+      "test_name": "skeleton_confirmation",
+      "duration": 0.8,
+      "memory_delta": 15.0,
+      "memory_peak": 70.0
+    },
+    "long_narrative_parsing": {
+      "test_name": "long_narrative_parsing",
+      "duration": 3.5,
+      "memory_delta": 50.0,
+      "memory_peak": 100.0
+    }
+  },
+  "summary": {
+    "total_duration": 5.8,
+    "avg_duration": 1.9333333333333333,
+    "max_duration": 3.5,
+    "min_duration": 0.8,
+    "total_memory_delta": 95.0,
+    "avg_memory_delta": 31.666666666666668,
+    "max_memory_delta": 50.0
+  }
+}

@@ -67,9 +67,12 @@ This is an AI travel vlog editing system—a local tool that transforms travel s
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
-| `AI旅行Vlog剪辑系统PRD重构版.md` | Primary PRD; product requirements, success metrics, version boundaries | Product, engineering, design |
-| `AI旅行Vlog剪辑系统方案.md` | Solution architecture and design principles | Engineering, design |
-| `AI旅行Vlog开源工具调研.md` | Dependency evaluation and tool research | Engineering |
+| [PRD](docs/product/PRD.md) | Primary PRD; product requirements, success metrics, version boundaries | Product, engineering, design |
+| [Architecture](docs/product/architecture.md) | Solution architecture and design principles | Engineering, design |
+| [Tools Research](docs/product/tools_research.md) | Dependency evaluation and tool research | Engineering |
+| [Data Schema](docs/product/data_schema.md) | Data dictionary and schema definitions | Engineering |
+| [Interaction Design](docs/product/interaction_design.md) | UI/UX design and interaction flows | Design, product |
+| [Test Cases](docs/product/test_cases.md) | Acceptance test cases and scenarios | QA, product |
 | `AGENTS.md` | Repository guidelines for documentation and commits | All contributors |
 
 ## Quick Reference

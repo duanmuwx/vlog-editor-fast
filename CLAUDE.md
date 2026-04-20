@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an AI travel vlog editing system—a local tool that transforms travel stories into 2–4 minute, 16:9 horizontal-format vlogs. The system is currently in the documentation and planning phase; no implementation code exists yet.
+This is an AI travel vlog editing system—a local tool that transforms travel stories into 2–4 minute, 16:9 horizontal-format vlogs. **Phases 1–5 are fully implemented** with core modules, API, database, and test suite (21 tests, all passing).
 
 **Core principle:** Story-first, multi-modal alignment. The user's travel narrative (游记) is the primary driver; photos, videos, audio, timestamps, and GPS data are evidence that supports the story structure.
+
+**Current Phase:** Phase 1–5 complete. Phase 6 (UI/Frontend) and Phase 7 (Optimization) pending.
 
 ## Architecture & Core Concepts
 
@@ -65,6 +67,8 @@ This is an AI travel vlog editing system—a local tool that transforms travel s
 
 ## Document Map
 
+### Product Documentation
+
 | Document | Purpose | Audience |
 |----------|---------|----------|
 | [PRD](docs/product/PRD.md) | Primary PRD; product requirements, success metrics, version boundaries | Product, engineering, design |
@@ -73,7 +77,119 @@ This is an AI travel vlog editing system—a local tool that transforms travel s
 | [Data Schema](docs/product/data_schema.md) | Data dictionary and schema definitions | Engineering |
 | [Interaction Design](docs/product/interaction_design.md) | UI/UX design and interaction flows | Design, product |
 | [Test Cases](docs/product/test_cases.md) | Acceptance test cases and scenarios | QA, product |
+
+### Implementation Plans
+
+| Phase | Plan Document | Scope |
+|-------|---------------|-------|
+| **Overview** | [Implementation Phases Overview](plans/implementation-phases-overview.md) | Complete system design, all 5 phases, data models, API design, validation criteria |
+| **Phase 1** | [Phase 1: Infrastructure & Input Processing](plans/phase1-implementation.md) | Project management, input validation, media asset indexing |
+| **Phase 2** | [Phase 2: Story Analysis & Confirmation](plans/phase2-story-analysis-confirmation.md) | Story parsing, skeleton generation, user confirmation workflow |
+| **Phase 3** | [Phase 3: Media Analysis & Alignment](plans/phase3-media-analysis-alignment.md) | Media analysis, narrative-media alignment, highlight confirmation |
+| **Phase 4** | [Phase 4: Final Composition & Export](plans/phase4-final-composition-export.md) | Edit planning, narration/TTS, audio mixing, video rendering |
+| **Phase 5** | [Phase 5: Version Management & Recovery](plans/phase5-version-management-recovery.md) | Run orchestration, artifact versioning, local regeneration, diagnostics |
+| **Phase 6** | [Phase 6: Testing & Optimization](plans/phase6-testing-optimization.md) | Unit/integration/E2E testing, performance optimization, documentation |
+
+### Repository Guidelines
+
+| Document | Purpose | Audience |
+|----------|---------|----------|
 | `AGENTS.md` | Repository guidelines for documentation and commits | All contributors |
+
+## Development Commands
+
+### Setup & Installation
+
+```bash
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Copy environment template
+cp .env.example .env
+```
+
+### Testing
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run unit tests only
+pytest tests/unit/ -v
+
+# Run integration tests only
+pytest tests/integration/ -v
+
+# Run specific test file
+pytest tests/unit/test_project_manager.py -v
+
+# Run with coverage
+pytest tests/ --cov=src --cov-report=html
+```
+
+### Code Quality
+
+```bash
+# Format code with Black
+black src/ tests/
+
+# Lint with Ruff
+ruff check src/ tests/
+
+# Fix linting issues
+ruff check --fix src/ tests/
+```
+
+### Running the Server
+
+```bash
+# Start FastAPI development server (auto-reload)
+uvicorn src.server.main:app --reload --host 0.0.0.0 --port 8000
+
+# API available at http://localhost:8000
+# Docs at http://localhost:8000/docs
+```
+
+## Implemented Modules
+
+| Module | Status | Responsibility |
+|--------|--------|---|
+| **ProjectManager** | ✅ | Project creation, workspace management |
+| **InputValidator** | ✅ | Input validation, risk identification |
+| **AssetIndexer** | ✅ | Media indexing, metadata extraction |
+| **StoryParser** | ✅ | Narrative parsing into scenes/segments |
+| **StorySkeleton** | ✅ | Story structure representation |
+| **SkeletonConfirmation** | ✅ | User confirmation UI logic |
+| **MediaAnalyzer** | ✅ | Visual/audio feature extraction |
+| **AlignmentEngine** | ✅ | Multi-modal narrative-media matching |
+| **EditPlanner** | ✅ | Structure, timing, transitions generation |
+| **HighlightConfirmation** | ✅ | Highlight selection confirmation |
+| **Composer** | ✅ | Video assembly and effects |
+| **AudioComposer** | ✅ | Voiceover, ambient sound, BGM mixing |
+| **NarrationEngine** | ✅ | TTS voiceover generation |
+| **Renderer** | ✅ | MP4 export, subtitle generation |
+| **RunOrchestrator** | ✅ | Pipeline orchestration, state management |
+| **ArtifactStore** | ✅ | Version management, recovery |
+| **DiagnosticReporter** | ✅ | Logging, diagnostics, debugging |
+
+## Database
+
+SQLite database per project at: `~/.vlog-editor/projects/{project_id}/project.db`
+
+Key tables: `projects`, `project_configs`, `media_files`, `validation_reports`, `asset_indexes`, `story_skeletons`, `edit_plans`, `artifacts`
+
+## Three-Stage User Interaction Model
+
+1. **Story Skeleton Confirmation** - User reviews and adjusts parsed narrative structure
+2. **Highlight Confirmation** - User confirms/adjusts candidate highlight clips
+3. **Local Regeneration** - User can regenerate specific components (voiceover, audio mix, structure) without full re-processing
 
 ## Quick Reference
 
@@ -105,10 +221,41 @@ This is an AI travel vlog editing system—a local tool that transforms travel s
 - **Story-driven architecture**: Distinguishes this from generic video editors; narrative structure is the organizing principle
 - **Local-first with optional cloud**: Respects user privacy and offline use; cloud services are optional enhancements, not required
 
-## Next Steps for Implementation
+## Implementation Status
 
-1. Finalize success metrics and version boundaries in the PRD
-2. Design task state machine and recovery protocol for long-running pipelines
-3. Specify input validation rules and quality thresholds
-4. Create detailed interaction flows for the three-stage user checkpoint design
-5. Prototype the alignment engine with real travel media samples
+**Completed (Phases 1–5):**
+- ✅ Infrastructure & input processing (Phase 1)
+- ✅ Story analysis & confirmation (Phase 2)
+- ✅ Media analysis & alignment (Phase 3)
+- ✅ Final composition & export (Phase 4)
+- ✅ Version management & recovery (Phase 5)
+
+**Next Steps (Phases 6–7):**
+1. Frontend UI implementation (Phase 6) - Web interface for three-stage interaction
+2. Performance optimization & profiling (Phase 7)
+3. Real-world testing with travel media samples
+4. User feedback integration and iteration
+5. Documentation and deployment guides
+
+## Development Workflow
+
+1. **Before starting work**: Check `plans/` directory for existing implementation plans
+2. **During implementation**: Use `EnterPlanMode` for multi-step tasks; save plans to `plans/`
+3. **Testing**: Run `pytest tests/ -v` before committing
+4. **Code quality**: Run `black` and `ruff` before committing
+5. **Committing**: Use descriptive messages; reference phase/module in commit
+6. **Documentation**: Update relevant docs in `docs/product/` and `docs/developer_guide/`
+
+## Key Files & Locations
+
+| File/Directory | Purpose |
+|---|---|
+| `src/server/main.py` | FastAPI application entry point |
+| `src/server/modules/` | Core module implementations |
+| `src/server/storage/` | Database layer (SQLite) |
+| `src/shared/types.py` | Shared type definitions |
+| `tests/unit/` | Unit tests (18 tests) |
+| `tests/integration/` | Integration tests (3 tests) |
+| `docs/product/` | Product documentation (PRD, architecture, etc.) |
+| `docs/testing/` | Test reports and verification |
+| `plans/` | Implementation plans and design docs |
